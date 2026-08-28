@@ -1,0 +1,17 @@
+# dependencies
+/node_modules
+
+# build output
+/dist
+/.angular
+/src-tauri/target
+/src-tauri/gen
+
+# logs
+npm-debug.log*
+yarn-error.log*
+
+# editor / os
+.DS_Store
+Thumbs.db
+*.local

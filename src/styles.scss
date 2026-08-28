@@ -1,0 +1,188 @@
+/* CostTracer — visual system.
+   Direction: minimal and dense. Structure comes from spacing, alignment and typography — not from
+   boxes. Borders are hairline or absent; regions share the same ground and stay within their own
+   bounds without loud dividers. Everything is compact so many panels can coexist later. */
+
+:root {
+  /* ground + barely-raised regions (no heavy card fills) */
+  --ct-bg: #fbfbfc;
+  --ct-panel: #ffffff;
+  --ct-inset: #f3f4f6;
+  --ct-chrome: #f1f2f4; /* window titlebar */
+
+  /* hairlines: -faint for grouping, -line for a deliberate edge */
+  --ct-border-faint: #ececef;
+  --ct-border-line: #dcdee3;
+
+  --ct-text: #1c1f24;
+  --ct-text-dim: #6b7280;
+  --ct-text-faint: #9aa1ac;
+
+  --ct-accent: #2f6feb;
+  --ct-accent-text: #ffffff;
+
+  --ct-danger: #c0392b;
+  --ct-danger-bg: #fdf0ef;
+  --ct-warn: #a56308;
+  --ct-warn-bg: #fbf5e9;
+  --ct-ok: #1a7f52;
+
+  --ct-radius: 6px;
+  --ct-radius-sm: 4px;
+
+  --ct-font: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --ct-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* legacy aliases (older component styles still reference these) */
+  --ct-surface: var(--ct-inset);
+  --ct-surface-raised: var(--ct-panel);
+  --ct-border: var(--ct-border-line);
+  --ct-text-muted: var(--ct-text-dim);
+  --ct-primary: var(--ct-accent);
+  --ct-primary-text: var(--ct-accent-text);
+  --ct-danger-border: #f0c4bf;
+  --ct-warning: var(--ct-warn);
+  --ct-warning-bg: var(--ct-warn-bg);
+  --ct-warning-border: #ecd9b0;
+  --ct-success: var(--ct-ok);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    /* lifted, layered greys — not near-black */
+    --ct-bg: #16171b;
+    --ct-panel: #1e2025;
+    --ct-inset: #26282e;
+    --ct-chrome: #101115;
+
+    --ct-border-faint: #2c2f36;
+    --ct-border-line: #3a3e47;
+
+    --ct-text: #edeff3;
+    --ct-text-dim: #a3adba;
+    --ct-text-faint: #717a87;
+
+    --ct-accent: #5b93f6;
+
+    --ct-danger: #ff6b60;
+    --ct-danger-bg: #2a1a18;
+    --ct-warn: #e0a944;
+    --ct-warn-bg: #2a2214;
+    --ct-ok: #46c07f;
+
+    --ct-danger-border: #57302b;
+    --ct-warning-border: #56471f;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; height: 100%; }
+
+/* theme-aware scrollbars (default is a light OS bar that clashes on dark) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ct-border-line) transparent;
+}
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--ct-border-line);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--ct-text-faint); }
+::-webkit-scrollbar-corner { background: transparent; }
+
+body {
+  background: var(--ct-bg);
+  color: var(--ct-text);
+  font-family: var(--ct-font);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+button { font: inherit; }
+code, pre { font-family: var(--ct-mono); }
+
+/* Edge/WebView2 injects its own reveal-eye and clear-X into inputs — we provide our own toggle */
+input::-ms-reveal,
+input::-ms-clear { display: none; }
+
+/* --- buttons: compact, quiet --- */
+.ct-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--ct-radius-sm);
+  border: 1px solid var(--ct-border-line);
+  background: var(--ct-panel);
+  color: var(--ct-text);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.1s ease, border-color 0.1s ease;
+}
+.ct-btn:hover { background: var(--ct-inset); }
+.ct-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.ct-btn:focus-visible { outline: 2px solid var(--ct-accent); outline-offset: 1px; }
+.ct-btn--primary {
+  background: var(--ct-accent);
+  border-color: var(--ct-accent);
+  color: var(--ct-accent-text);
+}
+.ct-btn--primary:hover { background: var(--ct-accent); filter: brightness(1.06); }
+.ct-btn--danger { background: var(--ct-danger); border-color: var(--ct-danger); color: #fff; }
+/* ghost = same outline as a secondary button, no fill (lower emphasis, identical shape) */
+.ct-btn--ghost { background: transparent; }
+.ct-btn--ghost:hover { background: var(--ct-inset); }
+.ct-btn--block { width: 100%; }
+
+/* --- fields --- */
+.ct-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+.ct-field > label,
+.ct-field > span:first-child { font-weight: 500; font-size: 12px; color: var(--ct-text-dim); }
+.ct-field > .ct-hint { color: var(--ct-text-faint); font-size: 11px; }
+.ct-field input,
+.ct-field select {
+  padding: 7px 9px;
+  border-radius: var(--ct-radius-sm);
+  border: 1px solid var(--ct-border-line);
+  background: var(--ct-bg);
+  color: var(--ct-text);
+  font: inherit;
+}
+.ct-field input:focus-visible,
+.ct-field select:focus-visible { outline: 2px solid var(--ct-accent); outline-offset: 1px; }
+
+/* --- alerts: hairline, no chunk --- */
+.ct-alert {
+  border: 1px solid var(--ct-border-faint);
+  border-left-width: 2px;
+  border-radius: var(--ct-radius-sm);
+  padding: 8px 10px;
+  font-size: 12.5px;
+}
+.ct-alert--danger { background: var(--ct-danger-bg); border-left-color: var(--ct-danger); }
+.ct-alert--warning { background: var(--ct-warn-bg); border-left-color: var(--ct-warn); }
+.ct-alert > strong { display: block; margin-bottom: 2px; }
+
+/* --- spinner --- */
+.ct-spinner {
+  width: 20px; height: 20px;
+  border: 2px solid var(--ct-border-line);
+  border-top-color: var(--ct-accent);
+  border-radius: 50%;
+  animation: ct-spin 0.7s linear infinite;
+}
+@keyframes ct-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .ct-spinner { animation-duration: 2s; } }
+
+/* --- misc --- */
+.ct-muted { color: var(--ct-text-dim); }
+.ct-hint { color: var(--ct-text-faint); font-size: 11px; }
+.ct-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.ct-kv { display: grid; grid-template-columns: max-content 1fr; gap: 5px 14px; }
+.ct-kv > dt { color: var(--ct-text-dim); }
+.ct-kv > dd { margin: 0; font-variant-numeric: tabular-nums; }
