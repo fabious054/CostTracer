@@ -1,5 +1,7 @@
 # CostTracer
 
+🇺🇸 English (this file) | 🇧🇷 [Leia em português](README.pt-BR.md)
+
 > Local-first AWS cost visibility tool. Tracks idle resources over time to confirm real waste — read-only, no credentials ever leave your machine.
 
 🚧 **Status:** Early development — currently working on **Scope 1: AWS connection flow**. No functional release yet.
@@ -55,4 +57,4 @@ CostTracer follows a zero-trust-by-design approach:
 
 ## License
 
-TBD.
+MIT — see [LICENSE](LICENSE) for details.
