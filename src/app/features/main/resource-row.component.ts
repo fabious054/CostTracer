@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
+import { formatEventTime } from '../../core/format/event-time';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { ScanStore } from '../../core/scan/scan.store';
 import { ResourceItem } from '../../core/models/scan';
@@ -227,7 +228,6 @@ export class ResourceRowComponent {
   });
 
   private fmtDate(unixSecs: number): string {
-    const locale = this.i18n.locale() === 'pt' ? 'pt-BR' : 'en-US';
-    return new Date(unixSecs * 1000).toLocaleDateString(locale);
+    return formatEventTime(unixSecs, this.i18n.locale());
   }
 }

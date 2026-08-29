@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, inject, OnInit } from '@angular/core';
+import { formatEventTime } from '../../core/format/event-time';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { ScanStore } from '../../core/scan/scan.store';
 import { BusyComponent } from '../onboarding/ui/busy.component';
@@ -95,7 +96,6 @@ export class ScanPanelComponent implements OnInit {
   }
 
   protected when(unixSecs: number): string {
-    const locale = this.i18n.locale() === 'pt' ? 'pt-BR' : 'en-US';
-    return new Date(unixSecs * 1000).toLocaleString(locale);
+    return formatEventTime(unixSecs, this.i18n.locale());
   }
 }
