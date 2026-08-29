@@ -7,6 +7,7 @@ import {
   listSavedSsoUrls,
   rememberSsoUrl,
   SavedSsoUrl,
+  togglePinSsoUrl,
 } from '../../../core/sso/saved-urls';
 import { RegionFieldComponent } from '../ui/region-field.component';
 import { WizardShellComponent } from '../ui/wizard-shell.component';
@@ -40,7 +41,17 @@ import { WizardShellComponent } from '../ui/wizard-shell.component';
             <span class="recent-label">{{ i18n.t('sso.start.recent') }}</span>
             <ul>
               @for (entry of saved(); track entry.url) {
-                <li>
+                <li [class.pinned]="entry.pinned">
+                  <button
+                    type="button"
+                    class="pin"
+                    [class.on]="entry.pinned"
+                    [attr.aria-label]="i18n.t('sso.start.pin')"
+                    [attr.aria-pressed]="!!entry.pinned"
+                    (click)="togglePin(entry.url)"
+                  >
+                    {{ entry.pinned ? '★' : '☆' }}
+                  </button>
                   <button type="button" class="pick" (click)="use(entry)">
                     <span class="u">{{ entry.url }}</span>
                     @if (entry.region) {
@@ -99,6 +110,27 @@ import { WizardShellComponent } from '../ui/wizard-shell.component';
         display: flex;
         align-items: center;
         border-bottom: 1px solid var(--ct-border-faint);
+      }
+      .recent li.pinned + li:not(.pinned) {
+        border-top: 1px solid var(--ct-border-faint);
+        margin-top: 3px;
+        padding-top: 3px;
+      }
+      .pin {
+        flex: none;
+        border: 0;
+        background: transparent;
+        color: var(--ct-text-faint);
+        font-size: 13px;
+        line-height: 1;
+        padding: 4px 6px;
+        cursor: pointer;
+      }
+      .pin:hover {
+        color: var(--ct-text-dim);
+      }
+      .pin.on {
+        color: var(--ct-accent);
       }
       .pick {
         flex: 1;
@@ -164,6 +196,11 @@ export class SsoStartComponent {
   protected use(entry: SavedSsoUrl): void {
     this.startUrl.set(entry.url);
     if (entry.region) this.region.set(entry.region);
+  }
+
+  protected togglePin(url: string): void {
+    togglePinSsoUrl(url);
+    this.saved.set(listSavedSsoUrls());
   }
 
   protected forget(url: string): void {
