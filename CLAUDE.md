@@ -10,7 +10,7 @@ de cada sessão neste repositório e deve ser seguido sem necessidade de repeti�
 CostTracer é uma aplicação desktop de auditoria e visibilidade de custos AWS, local-first
 (Tauri v2 + Rust no core, Angular no frontend). Roda inteiramente na máquina do usuário; nenhuma
 credencial, dado de conta ou telemetria sai dela. É um projeto de portfólio open-source (licença
-MIT), atualmente em fase inicial (Fase 0 do roadmap — ver `README.md`).
+MIT).
 
 Decisões de produto (nome, escopo, fluxo, critérios de aceite) são tomadas em uma conversa separada
 de produto, sem acesso a este código. Este arquivo, os ADRs e o código são o que chega até aqui —
@@ -73,7 +73,7 @@ processo de desenvolvimento não é segredo, mas não deve aparecer como coautor
 histórico do Git nem na lista de Contributors do GitHub — as decisões de produto e arquitetura
 são do usuário, e o histórico de commits deve refletir isso.
 
-
+## Comentários inline
 
 Comente o **porquê**, nunca o **o quê**. O nome da função/variável já deveria comunicar o que o
 código faz — se não comunica, o problema é o nome, não a falta de comentário.
@@ -133,6 +133,27 @@ template de duas partes (log de progresso cronológico + relatório de fechament
 já em uso em `cost-tracer/scope-reports/`. Esse arquivo vive fora deste repositório — se você não
 tiver acesso a essa pasta na sessão atual, gere o conteúdo e entregue para o usuário copiar
 manualmente.
+
+## Checklist obrigatório de fechamento de escopo
+
+Antes de considerar um escopo formalmente fechado (commit + tag), sempre nessa ordem:
+
+1. Checklist de validação manual do relatório de fechamento com os itens bloqueantes confirmados
+   (pendências não-bloqueantes registradas, não escondidas).
+2. Qualquer afordância de dev temporária removida (checklist própria, com `grep` de confirmação).
+3. `docs/iam-policy-minimal.json` revisado — nenhuma permissão nova sem uso real, nenhuma faltando.
+4. **`README.md` e `README.pt-BR.md` atualizados** — Status, Roadmap (fase atual e o que já saiu
+   dela) e qualquer seção que descreva funcionalidade precisam refletir o estado real do produto
+   após o escopo. Um README desatualizado é a porta de entrada do projeto — nunca deixar essa
+   atualização para depois do commit de fechamento.
+5. `tauri.conf.json` (+ `Cargo.toml` + `package.json`) com a versão sincronizada com a tag que será
+   criada, no mesmo commit — ver seção "Versão do app" abaixo.
+6. Suíte completa rodando verde (`cargo check`, `cargo test`, `ng build`, testes do frontend).
+7. Commit de fechamento + tag de marco (`vX.Y.Z-escopoN`) + push.
+8. Relatório de fechamento em `cost-tracer/scope-reports/` congelado como 🟢 Fechado.
+
+Nenhum desses itens é opcional nem pode ficar para "depois" — um escopo só está fechado quando os
+8 estão feitos.
 
 ## Versão do app — fonte da verdade e sincronização
 
