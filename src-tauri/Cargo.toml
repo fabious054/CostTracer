@@ -25,6 +25,8 @@ thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
 dirs = "5"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+# Scope 2 scan-history store (ADR 0002). `bundled` = SQLite compiled from source, no system dep.
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-credential-types = { version = "1", features = ["hardcoded-credentials"] }

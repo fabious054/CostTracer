@@ -1,11 +1,18 @@
 mod aws;
 mod commands;
+mod detectors;
 mod error;
 mod model;
+mod scan;
 mod session;
+mod store;
+mod util;
 mod vault;
 
+use tauri::Manager;
+
 use session::OnboardingSession;
+use store::Db;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -13,6 +20,13 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(OnboardingSession::default())
+        .setup(|app| {
+            let dir = app.path().app_local_data_dir()?;
+            std::fs::create_dir_all(&dir)?;
+            let db = Db::open(dir.join("costtracer.sqlite3"))?;
+            app.manage(db);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::session_resume,
             commands::detect_local_config,
@@ -28,6 +42,10 @@ pub fn run() {
             commands::connection_finalize,
             commands::connection_disconnect,
             commands::session_discard,
+            commands::scan_run,
+            commands::scan_latest,
+            commands::resource_mark_intentional,
+            commands::resource_unmark_intentional,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the CostTracer application");

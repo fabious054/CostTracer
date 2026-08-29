@@ -176,3 +176,230 @@ pub struct StoredCredential {
     pub arn: String,
     pub saved_at_unix: u64,
 }
+
+// === Scope 2 — idle-resource scan ==========================================
+// Dates cross the boundary as unix seconds (i64); the webview formats them.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceType {
+    EbsVolume,
+    ElasticIp,
+    EbsSnapshot,
+}
+
+impl ResourceType {
+    pub fn as_db(self) -> &'static str {
+        match self {
+            ResourceType::EbsVolume => "ebs_volume",
+            ResourceType::ElasticIp => "elastic_ip",
+            ResourceType::EbsSnapshot => "ebs_snapshot",
+        }
+    }
+    pub fn from_db(s: &str) -> Option<Self> {
+        match s {
+            "ebs_volume" => Some(ResourceType::EbsVolume),
+            "elastic_ip" => Some(ResourceType::ElasticIp),
+            "ebs_snapshot" => Some(ResourceType::EbsSnapshot),
+            _ => None,
+        }
+    }
+    /// Snapshots confirm on the slower scale (retention is commonly intentional).
+    pub fn confidence_scale(self) -> ConfidenceScale {
+        match self {
+            ResourceType::EbsSnapshot => ConfidenceScale::Snapshot,
+            _ => ConfidenceScale::Standard,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DetectorKind {
+    EbsUnattached,
+    ElasticIpIdle,
+    OrphanSnapshot,
+}
+
+impl DetectorKind {
+    pub fn resource_type(self) -> ResourceType {
+        match self {
+            DetectorKind::EbsUnattached => ResourceType::EbsVolume,
+            DetectorKind::ElasticIpIdle => ResourceType::ElasticIp,
+            DetectorKind::OrphanSnapshot => ResourceType::EbsSnapshot,
+        }
+    }
+    pub fn as_db(self) -> &'static str {
+        match self {
+            DetectorKind::EbsUnattached => "ebs-unattached",
+            DetectorKind::ElasticIpIdle => "elastic-ip-idle",
+            DetectorKind::OrphanSnapshot => "orphan-snapshot",
+        }
+    }
+    pub fn from_db(s: &str) -> Option<Self> {
+        match s {
+            "ebs-unattached" => Some(DetectorKind::EbsUnattached),
+            "elastic-ip-idle" => Some(DetectorKind::ElasticIpIdle),
+            "orphan-snapshot" => Some(DetectorKind::OrphanSnapshot),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ScanStatus {
+    Ok,
+    Partial,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ResourceState {
+    Alert,
+    Neutral,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ConfidenceScale {
+    Standard,
+    Snapshot,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ConfidenceLevel {
+    Observed,
+    Persisting,
+    Probable,
+    Confirmed,
+}
+
+impl ConfidenceLevel {
+    /// Pure function of coverage. Standard: Probable 5–6, Confirmed ≥7 (ADR 0002).
+    pub fn from_days(days: i64, scale: ConfidenceScale) -> Self {
+        let d = days.max(0);
+        match scale {
+            ConfidenceScale::Standard => match d {
+                0..=1 => ConfidenceLevel::Observed,
+                2..=4 => ConfidenceLevel::Persisting,
+                5..=6 => ConfidenceLevel::Probable,
+                _ => ConfidenceLevel::Confirmed,
+            },
+            ConfidenceScale::Snapshot => match d {
+                0..=6 => ConfidenceLevel::Observed,
+                7..=18 => ConfidenceLevel::Persisting,
+                19..=29 => ConfidenceLevel::Probable,
+                _ => ConfidenceLevel::Confirmed,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfidenceInfo {
+    pub level: ConfidenceLevel,
+    pub days_coverage: i64,
+    pub scale: ConfidenceScale,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RegionError {
+    pub region: String,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceItem {
+    pub resource_type: ResourceType,
+    pub resource_id: String,
+    pub region: String,
+    pub display_name: Option<String>,
+    pub state: ResourceState,
+    /// Stable code (e.g. "associated-instance-stopped"); the webview maps it to a translated string.
+    pub neutral_note: Option<String>,
+    pub intentional: bool,
+    /// AWS `CreateTime` / `StartTime`, unix seconds. `None` for Elastic IP (AWS gives no date).
+    pub created_at: Option<i64>,
+    /// First scan that ever saw this resource, unix seconds. The age anchor for Elastic IP.
+    pub monitored_since: i64,
+    /// Present only for alerting, non-intentional resources.
+    pub confidence: Option<ConfidenceInfo>,
+    pub facts: serde_json::Value,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectorResult {
+    pub kind: DetectorKind,
+    pub region_errors: Vec<RegionError>,
+    pub items: Vec<ResourceItem>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanResult {
+    pub scan_id: i64,
+    pub started_at: i64,
+    pub finished_at: i64,
+    pub account_id: String,
+    pub regions: Vec<String>,
+    pub status: ScanStatus,
+    pub detectors: Vec<DetectorResult>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum ScanRunOutcome {
+    Ok { result: ScanResult },
+    /// The stored credential no longer validates — the webview must send the user back to onboarding.
+    ReauthRequired,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResourceRef {
+    pub resource_type: ResourceType,
+    pub resource_id: String,
+    pub region: String,
+    #[serde(default)]
+    pub note: Option<String>,
+}
+
+#[cfg(test)]
+mod confidence_tests {
+    use super::ConfidenceLevel::*;
+    use super::{ConfidenceLevel, ConfidenceScale};
+
+    #[test]
+    fn standard_scale_cutoffs() {
+        let s = ConfidenceScale::Standard;
+        let l = |d| ConfidenceLevel::from_days(d, s);
+        assert_eq!(l(-3), Observed); // clamps
+        assert_eq!(l(0), Observed);
+        assert_eq!(l(1), Observed);
+        assert_eq!(l(2), Persisting);
+        assert_eq!(l(4), Persisting);
+        assert_eq!(l(5), Probable);
+        assert_eq!(l(6), Probable);
+        assert_eq!(l(7), Confirmed); // resolved ambiguity: Probable 5–6, Confirmed ≥7
+        assert_eq!(l(400), Confirmed);
+    }
+
+    #[test]
+    fn snapshot_scale_cutoffs() {
+        let s = ConfidenceScale::Snapshot;
+        let l = |d| ConfidenceLevel::from_days(d, s);
+        assert_eq!(l(0), Observed);
+        assert_eq!(l(6), Observed);
+        assert_eq!(l(7), Persisting);
+        assert_eq!(l(18), Persisting);
+        assert_eq!(l(19), Probable);
+        assert_eq!(l(29), Probable);
+        assert_eq!(l(30), Confirmed);
+    }
+}

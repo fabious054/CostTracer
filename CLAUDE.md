@@ -64,7 +64,16 @@ de aceite do escopo atual antes de começar). Regras:
   gerenciada) é uma peça central do produto, não um detalhe secundário. Bugs nela são prioridade
   alta — ver histórico de bug reportado no Escopo 1 (`AdministratorAccess` não disparando alerta).
 
-## Comentários inline
+## Autoria de commits
+
+Todo commit é autorado e assinado só como o usuário — nunca inclua `Co-Authored-By: Claude`,
+nem qualquer variação, no rodapé da mensagem de commit. Não use "Claude" como nome ou e-mail de
+autor/committer em nenhum commit, mesmo que a ferramenta sugira isso por padrão. O uso de IA no
+processo de desenvolvimento não é segredo, mas não deve aparecer como coautoria de código no
+histórico do Git nem na lista de Contributors do GitHub — as decisões de produto e arquitetura
+são do usuário, e o histórico de commits deve refletir isso.
+
+
 
 Comente o **porquê**, nunca o **o quê**. O nome da função/variável já deveria comunicar o que o
 código faz — se não comunica, o problema é o nome, não a falta de comentário.

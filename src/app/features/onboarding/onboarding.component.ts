@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { ConnectionStore } from '../../core/connection/connection.store';
-import { AccountInfoComponent } from '../account/account-info.component';
+import { MainViewComponent } from '../main/main-view.component';
 import { BootingComponent } from './steps/booting.component';
 import { CheckingPermissionsComponent } from './steps/checking-permissions.component';
 import { DetectingComponent } from './steps/detecting.component';
@@ -34,7 +34,7 @@ import { ValidationFailedComponent } from './steps/validation-failed.component';
     CheckingPermissionsComponent,
     ExcessivePermissionsComponent,
     PersistingComponent,
-    AccountInfoComponent,
+    MainViewComponent,
   ],
   template: `
     @switch (store.step()) {
@@ -50,7 +50,7 @@ import { ValidationFailedComponent } from './steps/validation-failed.component';
       @case ('checkingPermissions') { <ct-step-checking-permissions /> }
       @case ('excessivePermissions') { <ct-step-excessive-permissions /> }
       @case ('persisting') { <ct-step-persisting /> }
-      @case ('connected') { <ct-account-info /> }
+      @case ('connected') { <ct-main-view /> }
     }
   `,
 })

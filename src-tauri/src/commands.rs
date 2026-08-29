@@ -10,10 +10,12 @@ use crate::aws::sso::PollResult;
 use crate::error::{AppError, AppResult};
 use crate::model::{
     AccountInfo, CallerIdentity, CredentialSourceKind, DetectedConfig, ManualCredentialInput,
-    PermissionAudit, ResumeOutcome, SsoDeviceAuth, SsoPollOutcome, SsoSelectTargetInput,
-    SsoStartInput, StoredCredential, UseDetectedInput, ValidationOutcome,
+    PermissionAudit, ResourceRef, ResumeOutcome, ScanResult, ScanRunOutcome, SsoDeviceAuth,
+    SsoPollOutcome, SsoSelectTargetInput, SsoStartInput, StoredCredential, UseDetectedInput,
+    ValidationOutcome,
 };
 use crate::session::{OnboardingSession, PendingCredential, SsoFlow};
+use crate::store::Db;
 use crate::vault;
 
 /// Single source of truth for the recommended policy — the exact repo file, embedded at build time.
@@ -329,6 +331,37 @@ pub async fn connection_disconnect(session: State<'_, OnboardingSession>) -> App
 pub async fn session_discard(session: State<'_, OnboardingSession>) -> AppResult<()> {
     session.inner.lock().await.clear();
     Ok(())
+}
+
+// --- Scope 2: idle-resource scan --------------------------------------------
+
+#[tauri::command]
+pub async fn scan_run(db: State<'_, Db>) -> AppResult<ScanRunOutcome> {
+    crate::scan::run_scan(db.inner()).await
+}
+
+#[tauri::command]
+pub fn scan_latest(db: State<'_, Db>) -> AppResult<Option<ScanResult>> {
+    match vault::load()? {
+        Some(cred) => db.latest_scan_result(&cred.account_id),
+        None => Ok(None),
+    }
+}
+
+#[tauri::command]
+pub fn resource_mark_intentional(input: ResourceRef, db: State<'_, Db>) -> AppResult<()> {
+    db.mark_intentional(&connected_account_id()?, &input)
+}
+
+#[tauri::command]
+pub fn resource_unmark_intentional(input: ResourceRef, db: State<'_, Db>) -> AppResult<()> {
+    db.unmark_intentional(&connected_account_id()?, &input)
+}
+
+fn connected_account_id() -> AppResult<String> {
+    vault::load()?
+        .map(|s| s.account_id)
+        .ok_or_else(|| AppError::msg("Not connected to an AWS account."))
 }
 
 // --- helpers -------------------------------------------------------------

@@ -63,6 +63,12 @@ export interface IpcCommandMap {
   connection_finalize: { args: undefined; result: AccountInfo };
   connection_disconnect: { args: undefined; result: void };
   session_discard: { args: undefined; result: void };
+
+  // Scope 2 — idle-resource scan
+  scan_run: { args: undefined; result: import('./scan').ScanRunOutcome };
+  scan_latest: { args: undefined; result: import('./scan').ScanResult | null };
+  resource_mark_intentional: { args: { input: import('./scan').ResourceRef }; result: void };
+  resource_unmark_intentional: { args: { input: import('./scan').ResourceRef }; result: void };
 }
 
 export type IpcCommand = keyof IpcCommandMap;

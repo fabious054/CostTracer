@@ -16,10 +16,7 @@
         "ec2:DescribeVolumes",
         "ec2:DescribeAddresses",
         "ec2:DescribeSnapshots",
-        "ec2:DescribeInstances",
-        "elasticloadbalancing:DescribeLoadBalancers",
-        "elasticloadbalancing:DescribeTargetGroups",
-        "elasticloadbalancing:DescribeTargetHealth"
+        "ec2:DescribeInstances"
       ],
       "Resource": "*"
     },

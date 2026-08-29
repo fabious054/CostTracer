@@ -15,6 +15,9 @@ pub enum AppError {
 
     #[error(transparent)]
     Io(#[from] std::io::Error),
+
+    #[error(transparent)]
+    Sqlite(#[from] rusqlite::Error),
 }
 
 impl AppError {
