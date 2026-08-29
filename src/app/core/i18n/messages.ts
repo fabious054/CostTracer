@@ -68,6 +68,8 @@ const EN = {
   'sso.start.title': 'Sign in with IAM Identity Center',
   'sso.start.url': 'Start URL',
   'sso.start.continue': 'Continue',
+  'sso.start.recent': 'Recent',
+  'sso.start.forget': 'Remove from list',
 
   // sso device auth
   'sso.device.title': 'Authorize in your browser',
@@ -248,6 +250,8 @@ const PT: Record<MessageKey, string> = {
   'sso.start.title': 'Entrar com o IAM Identity Center',
   'sso.start.url': 'Start URL',
   'sso.start.continue': 'Continuar',
+  'sso.start.recent': 'Recentes',
+  'sso.start.forget': 'Remover da lista',
 
   'sso.device.title': 'Autorize no seu navegador',
   'sso.device.subtitle': 'O CostTracer está esperando você aprovar este dispositivo.',

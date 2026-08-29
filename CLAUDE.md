@@ -134,6 +134,20 @@ já em uso em `cost-tracer/scope-reports/`. Esse arquivo vive fora deste reposit
 tiver acesso a essa pasta na sessão atual, gere o conteúdo e entregue para o usuário copiar
 manualmente.
 
+## Versão do app — fonte da verdade e sincronização
+
+O campo `version` de `src-tauri/tauri.conf.json` é a **fonte da verdade** da versão do build — é
+o que a UI exibe (via `getVersion()` da API do Tauri, nunca hardcoded). Regra permanente, no mesmo
+espírito da regra de `docs/iam-policy-minimal.json`:
+
+- Ao fechar um escopo, **no mesmo commit que cria a tag de Git** daquele fechamento, bumpar
+  `version` em `src-tauri/tauri.conf.json` para o número da tag. Ex: tag `v0.2.0-scope2` ⇒
+  `version: "0.2.0"`.
+- Manter `src-tauri/Cargo.toml` e `package.json` no mesmo número, no mesmo commit.
+- Nunca deixar a versão exibida dessincronizada da última tag publicada.
+- (Histórico: `0.2.0` foi sincronizado depois da tag `v0.2.0-scope2`, num commit de melhorias
+  separado — a partir daí a regra acima vale sempre no commit de fechamento.)
+
 ## O que fazer quando uma decisão não está coberta aqui
 
 Se a tarefa exigir uma decisão de **produto** (nome de feature, prioridade, critério de negócio,

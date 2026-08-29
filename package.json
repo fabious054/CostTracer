@@ -1,6 +1,6 @@
 {
   "name": "cost-tracer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local-first AWS cost visibility tool — Scope 1: AWS connection flow.",
   "license": "MIT",
   "private": true,

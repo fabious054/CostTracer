@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, inject, signal } from '@angular/core';
+import { getVersion } from '@tauri-apps/api/app';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { I18nService } from '../../core/i18n/i18n.service';
 import { Locale } from '../../core/i18n/messages';
@@ -16,6 +17,9 @@ import { Locale } from '../../core/i18n/messages';
       <div class="drag" data-tauri-drag-region>
         <span class="mark" aria-hidden="true"></span>
         <span class="name">CostTracer</span>
+        @if (version(); as v) {
+          <span class="version">v{{ v }}</span>
+        }
       </div>
       <div class="lang" role="group" aria-label="Language">
         @for (l of i18n.locales; track l) {
@@ -86,6 +90,12 @@ import { Locale } from '../../core/i18n/messages';
         color: var(--ct-text-dim);
         white-space: nowrap;
       }
+      .version {
+        font-size: 9.5px;
+        color: var(--ct-text-faint);
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+      }
       .lang {
         display: flex;
         align-items: center;
@@ -150,6 +160,8 @@ export class TitlebarComponent {
   protected readonly i18n = inject(I18nService);
   private readonly win = getCurrentWindow();
   protected readonly maximized = signal(false);
+  /** From `tauri.conf.json` `version` — the single source of truth for the build version. */
+  protected readonly version = signal('');
 
   protected setLocale(locale: Locale): void {
     this.i18n.setLocale(locale);
@@ -157,6 +169,7 @@ export class TitlebarComponent {
 
   constructor() {
     void this.refresh();
+    void getVersion().then((v) => this.version.set(v));
     const unlisten = this.win.onResized(() => void this.refresh());
     inject(DestroyRef).onDestroy(() => void unlisten.then((off) => off()));
   }
