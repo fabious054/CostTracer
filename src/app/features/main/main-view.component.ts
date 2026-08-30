@@ -52,6 +52,10 @@ import { ScanPanelComponent } from './scan-panel.component';
         max-width: 640px;
         margin: 0 auto;
         padding: 22px 24px 40px;
+        /* Expanding a confidence group inserts rows; without this the browser's scroll
+           anchoring compensates and the whole view jumps to keep lower content in place.
+           Opting the scan subtree out keeps the clicked group exactly where it was. */
+        overflow-anchor: none;
       }
     `,
   ],
