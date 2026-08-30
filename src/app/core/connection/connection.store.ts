@@ -5,7 +5,7 @@ import {
   SsoStartInput,
   ValidationOutcome,
 } from '../models/ipc-contracts';
-import { SsoTarget } from '../models/aws';
+import { AccountInfo, SsoTarget } from '../models/aws';
 import { TauriIpcService } from '../ipc/tauri-ipc.service';
 import {
   ConnectionEvent,
@@ -287,5 +287,40 @@ export class ConnectionStore {
     await this.ipc.call('connection_disconnect').catch(() => undefined);
     this.dispatch({ type: 'disconnect' });
     await this.detect();
+  }
+
+  /**
+   * Reconcile this window's connection state with the vault. The vault is a single store shared
+   * across windows / app runs; a window keeps `state().account` in memory and can drift from it
+   * (another window connected a different account, an interrupted reconnect, credentials rotated).
+   * Every account-scoped command keys off the vault, so a drifted window silently acts on the
+   * wrong account. Cheap (no STS call) — safe to run on every window focus.
+   */
+  async resync(): Promise<void> {
+    const before = this._state();
+    if (before.step !== 'connected') return;
+
+    let current: AccountInfo | null;
+    try {
+      current = await this.ipc.call('connection_account');
+    } catch {
+      return; // couldn't read the vault — leave the window as-is
+    }
+
+    if (this._state().step !== 'connected') return; // changed while we were awaiting
+
+    if (!current) {
+      // The vault was cleared out from under us.
+      this.dispatch({ type: 'disconnect' });
+      await this.detect();
+      return;
+    }
+    if (
+      current.accountId !== before.account.accountId ||
+      current.regions.length !== before.account.regions.length ||
+      current.regionsDiscovered !== before.account.regionsDiscovered
+    ) {
+      this.dispatch({ type: 'connection/resynced', account: current });
+    }
   }
 }

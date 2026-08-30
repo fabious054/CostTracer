@@ -61,6 +61,7 @@ export type ConnectionEvent =
   | { type: 'retry' }
   | { type: 'switch-method' }
   | { type: 'disconnect' }
+  | { type: 'connection/resynced'; account: AccountInfo }
   | { type: 'error'; message: string };
 
 export type EventType = ConnectionEvent['type'];
@@ -171,6 +172,13 @@ export function reduce(state: ConnectionState, event: ConnectionEvent): Connecti
 
     case 'disconnect':
       return state.step === 'connected' ? { step: 'detecting' } : illegal(state, event);
+
+    // The vault (shared across windows) changed under a connected window — swap in the account it
+    // now holds so this window stops showing / acting on a stale one. Only from `connected`.
+    case 'connection/resynced':
+      return state.step === 'connected'
+        ? { step: 'connected', account: event.account }
+        : illegal(state, event);
 
     case 'error':
       if (state.step === 'validating') {

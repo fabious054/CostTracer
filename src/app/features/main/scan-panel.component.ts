@@ -452,7 +452,10 @@ export class ScanPanelComponent {
     return s.step === 'connected' ? s.account.regions.length : 0;
   }
 
-  protected requestScan(): void {
+  protected async requestScan(): Promise<void> {
+    // Make sure this window is on the account the vault actually holds before scanning — a
+    // drifted window would otherwise run against (and persist for) the wrong account.
+    await this.connection.resync();
     // A scan re-runs region discovery — pointless while the connected credential can't (the
     // button is disabled in this state; this guards the error-retry and keyboard paths too).
     if (this.regionsBlocked()) return;

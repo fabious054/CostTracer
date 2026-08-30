@@ -47,6 +47,7 @@ pub fn run() {
             commands::permissions_check,
             commands::connection_finalize,
             commands::connection_disconnect,
+            commands::connection_account,
             commands::session_discard,
             commands::scan_run,
             commands::scan_cancel,

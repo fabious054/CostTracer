@@ -60,6 +60,8 @@ export interface IpcCommandMap {
   policy_minimal_read: { args: undefined; result: string };
   connection_finalize: { args: undefined; result: AccountInfo };
   connection_disconnect: { args: undefined; result: void };
+  /** The account the vault currently holds (no STS call) — used to reconcile a drifted window. */
+  connection_account: { args: undefined; result: AccountInfo | null };
   session_discard: { args: undefined; result: void };
 
   // Scope 2 + 4 — idle-resource scan (progressive, multi-region)

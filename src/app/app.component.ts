@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject, OnInit } from '@angular/core';
+import { ChangeDetectionStrategy, Component, HostListener, inject, OnInit } from '@angular/core';
 import { isTauri } from '@tauri-apps/api/core';
 import { ConnectionStore } from './core/connection/connection.store';
 import { I18nService } from './core/i18n/i18n.service';
@@ -70,6 +70,18 @@ export class AppComponent implements OnInit {
   ngOnInit(): void {
     if (this.inDesktopApp) {
       void this.store.boot();
+    }
+  }
+
+  /**
+   * Regaining focus is when a window is most likely to be out of step with the vault — another
+   * window (or a `tauri dev` re-run) may have connected a different account while this one sat in
+   * the background. Reconcile before the user acts on stale data.
+   */
+  @HostListener('window:focus')
+  protected onFocus(): void {
+    if (this.inDesktopApp) {
+      void this.store.resync();
     }
   }
 }

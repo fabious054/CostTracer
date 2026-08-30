@@ -55,6 +55,22 @@ pub async fn session_resume() -> AppResult<ResumeOutcome> {
     }
 }
 
+/// The account the vault currently holds, built straight from the stored blob — no STS call.
+/// The vault is a single shared store; a window keeps its own `connection` state in memory and
+/// can drift from it (another window connects a different account, an interrupted reconnect).
+/// The webview calls this to reconcile — cheap enough to run on every window focus.
+#[tauri::command]
+pub fn connection_account() -> AppResult<Option<AccountInfo>> {
+    Ok(vault::load()?.map(|s| AccountInfo {
+        account_id: s.account_id,
+        arn: s.arn,
+        user_id: s.user_id,
+        regions: s.regions,
+        regions_discovered: s.regions_discovered,
+        source_kind: s.source_kind,
+    }))
+}
+
 #[tauri::command]
 pub fn detect_local_config() -> AppResult<DetectedConfig> {
     Ok(aws::local_config::detect())

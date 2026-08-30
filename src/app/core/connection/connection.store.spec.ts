@@ -193,4 +193,57 @@ describe('ConnectionStore', () => {
     expect(ipc.calls).toContain('session_discard');
     expect(store.state().step).toBe('methodSelect');
   });
+
+  describe('resync (window ↔ vault reconciliation)', () => {
+    const other: AccountInfo = {
+      ...account,
+      accountId: '999988887777',
+      regions: ['eu-west-1', 'us-east-1'],
+    };
+
+    it('swaps in the account the vault now holds', async () => {
+      const { store } = makeStore({
+        session_resume: () => ({ status: 'ok', account }),
+        connection_account: () => other,
+      });
+      await store.boot();
+      await store.resync();
+      expect(store.state()).toEqual({ step: 'connected', account: other });
+    });
+
+    it('is a no-op when the vault still matches', async () => {
+      const { store, ipc } = makeStore({
+        session_resume: () => ({ status: 'ok', account }),
+        connection_account: () => ({ ...account }),
+      });
+      await store.boot();
+      const ref = store.state();
+      await store.resync();
+      expect(store.state()).toBe(ref); // same object — reducer never ran
+      expect(ipc.calls).toContain('connection_account');
+    });
+
+    it('drops to onboarding when the vault was cleared', async () => {
+      const { store } = makeStore({
+        session_resume: () => ({ status: 'ok', account }),
+        connection_account: () => null,
+        connection_disconnect: () => undefined,
+        detect_local_config: () => emptyDetected,
+      });
+      await store.boot();
+      await store.resync();
+      expect(store.state().step).toBe('methodSelect');
+    });
+
+    it('does nothing when not connected', async () => {
+      const { store, ipc } = makeStore({
+        session_resume: () => ({ status: 'none' }),
+        detect_local_config: () => emptyDetected,
+      });
+      await store.boot();
+      ipc.calls.length = 0;
+      await store.resync();
+      expect(ipc.calls).toEqual([]);
+    });
+  });
 });

@@ -128,6 +128,16 @@ describe('connection reducer', () => {
     expect(reduce(booting, { type: 'disconnect' })).toBe(booting);
   });
 
+  it('swaps the account in place on connection/resynced, only from connected', () => {
+    const connected: ConnectionState = { step: 'connected', account };
+    const other: AccountInfo = { ...account, accountId: '999988887777', regions: ['eu-west-1', 'us-east-1'] };
+    const next = reduce(connected, { type: 'connection/resynced', account: other });
+    expect(next).toEqual({ step: 'connected', account: other });
+
+    const detecting: ConnectionState = { step: 'detecting' };
+    expect(reduce(detecting, { type: 'connection/resynced', account: other })).toBe(detecting);
+  });
+
   it('treats illegal (state, event) pairs as no-ops that preserve identity', () => {
     const detecting: ConnectionState = { step: 'detecting' };
     expect(reduce(detecting, { type: 'validate/ok', identity })).toBe(detecting);
