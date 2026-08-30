@@ -142,10 +142,12 @@ Antes de considerar um escopo formalmente fechado (commit + tag), sempre nessa o
    (pendências não-bloqueantes registradas, não escondidas).
 2. Qualquer afordância de dev temporária removida (checklist própria, com `grep` de confirmação).
 3. `docs/iam-policy-minimal.json` revisado — nenhuma permissão nova sem uso real, nenhuma faltando.
-4. **`README.md` e `README.pt-BR.md` atualizados** — Status, Roadmap (fase atual e o que já saiu
-   dela) e qualquer seção que descreva funcionalidade precisam refletir o estado real do produto
-   após o escopo. Um README desatualizado é a porta de entrada do projeto — nunca deixar essa
-   atualização para depois do commit de fechamento.
+4. **`README.md`, `README.pt-BR.md` e `docs/development.md` atualizados** — Status, Roadmap (fase
+   atual e o que já saiu dela), a seção "Layout" de `development.md` (estrutura de pastas real,
+   incluindo tudo que o escopo adicionou), "Verification status" (contagem de testes atual) e
+   qualquer seção que descreva funcionalidade precisam refletir o estado real do produto após o
+   escopo. Documentação desatualizada é tão ruim quanto código quebrado — nunca deixar essas
+   atualizações para depois do commit de fechamento.
 5. `tauri.conf.json` (+ `Cargo.toml` + `package.json`) com a versão sincronizada com a tag que será
    criada, no mesmo commit — ver seção "Versão do app" abaixo.
 6. Suíte completa rodando verde (`cargo check`, `cargo test`, `ng build`, testes do frontend).
