@@ -74,10 +74,8 @@ import { DetectorSectionComponent } from './detector-section.component';
                 {{ i18n.t('scan.cancel') }}
               </button>
             } @else {
+              <!-- "Partial" now lives as a status seal on the header divider (ct-root), not here. -->
               <span [class.partial]="!!cancelledLine()">{{ lastRunLabel() }}</span>
-              @if (store.result()?.status === 'partial') {
-                <span class="partial">{{ i18n.t('scan.meta.partial') }}</span>
-              }
               <button
                 type="button"
                 class="ct-btn rescan"
