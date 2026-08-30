@@ -52,7 +52,7 @@ A maioria das ferramentas do mercado cobre só o item 1. O CostTracer é desenha
   - ✅ Fluxo de conexão com a AWS + auditoria de permissões + cofre nativo — `v0.1.0-scope1`
   - ✅ Detectores de recursos ociosos (EBS, Elastic IP, snapshot) + histórico de scans + escala de confiança de quatro níveis — `v0.2.0-scope2`
   - ✅ Custo mensal estimado por recurso sinalizado, por detector e por conta (tabela de preços fixa e local, USD com BRL aproximado só em pt) — `v0.3.0-scope3`
-- **Fase 1 — Confiabilidade e abrangência** *(em andamento)*: mais tipos de recurso, suporte multi-região, sistema de exceções/allowlist (ex: exclusões baseadas em tag) para reduzir falsos positivos.
+- **Fase 1 — Confiabilidade e abrangência** *(em andamento)*: suporte multi-região e um sistema de exceções para reduzir falsos positivos (✅ "marcar como intencional" local desde o Escopo 2, nunca escreve na AWS; reconhecimento de tags já existentes na AWS foi avaliado e conscientemente adiado para preservar o pitch "conecte e funciona, sem setup prévio na sua conta" — backlog de produto). Mais tipos de recurso continuam em aberto.
   - ✅ Cobertura multi-região — regiões descobertas automaticamente, scan progressivo região a região, cancelável — `v0.4.0-scope4`
 - **Fase 2 — Ação assistida**: simulação dry-run opcional e, eventualmente, execução controlada — começando apenas pelos tipos de recurso em que a camada de confiança mais confia.
 - **Fase 3 — Multi-conta**: relevante para organizações que usam AWS Organizations; não é prioridade no curto prazo.

@@ -52,7 +52,7 @@ Most tools in this space only do #1. CostTracer is designed around all three fro
   - ✅ AWS connection flow + permission audit + native vault — `v0.1.0-scope1`
   - ✅ Idle-resource detectors (EBS, Elastic IP, snapshot) + scan history + four-level confidence scale — `v0.2.0-scope2`
   - ✅ Estimated monthly cost per flagged resource, per detector, and per account (fixed local price table, USD with a pt-only approximate BRL) — `v0.3.0-scope3`
-- **Phase 1 — Reliability & coverage** *(in progress)*: more resource types, multi-region support, exception/allowlist system (e.g. tag-based exclusions) to reduce false positives.
+- **Phase 1 — Reliability & coverage** *(in progress)*: multi-region support and an exception system to reduce false positives (✅ local "mark as intentional" since Scope 2, never writes to AWS; recognising existing AWS tags was evaluated and deliberately deferred to preserve the "connect and it works, no prior setup in your account" pitch — product backlog). More resource types remain open.
   - ✅ Multi-region coverage — auto-discovered regions, progressive region-by-region scan, cancellable — `v0.4.0-scope4`
 - **Phase 2 — Assisted action**: opt-in dry-run simulation and, eventually, guarded execution — starting only with the resource types the confidence layer trusts most.
 - **Phase 3 — Multi-account**: relevant for organizations using AWS Organizations; not a near-term priority.
