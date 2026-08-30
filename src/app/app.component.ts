@@ -35,6 +35,9 @@ import { TitlebarComponent } from './features/shell/titlebar.component';
         flex: 1;
         min-height: 0;
         overflow-y: auto;
+        /* No scroll-anchoring compensation anywhere in the app — expanding/collapsing content
+           (confidence groups, detector panels) must not move the viewport. */
+        overflow-anchor: none;
       }
       .browser-notice {
         max-width: 460px;
