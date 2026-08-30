@@ -38,9 +38,9 @@ import { TitlebarComponent } from './features/shell/titlebar.component';
         /* No scroll-anchoring compensation anywhere in the app — expanding/collapsing content
            (confidence groups, detector panels) must not move the viewport. */
         overflow-anchor: none;
-        /* Reserve the scrollbar's width whether or not it's showing, so expanding an item
-           doesn't shove every row sideways when the bar appears. */
-        scrollbar-gutter: stable;
+        /* Reserve the scrollbar's width on both sides whether or not it's showing, so expanding
+           an item never shoves rows sideways and the content stays symmetric either way. */
+        scrollbar-gutter: stable both-edges;
       }
       .browser-notice {
         max-width: 460px;
