@@ -5,7 +5,7 @@
 
 export type ResourceType = 'ebs_volume' | 'elastic_ip' | 'ebs_snapshot';
 export type DetectorKind = 'ebs-unattached' | 'elastic-ip-idle' | 'orphan-snapshot';
-export type ScanStatus = 'ok' | 'partial';
+export type ScanStatus = 'running' | 'ok' | 'partial' | 'cancelled';
 export type ResourceState = 'alert' | 'neutral';
 export type ConfidenceLevel = 'observed' | 'persisting' | 'probable' | 'confirmed';
 export type ConfidenceScale = 'standard' | 'snapshot';
@@ -94,7 +94,33 @@ export interface ScanResult {
 
 export type ScanRunOutcome =
   | { status: 'ok'; result: ScanResult }
+  | { status: 'cancelled'; result: ScanResult }
   | { status: 'reauthRequired' };
+
+// --- Scope 4 — progressive multi-region scan events (mirrors model.rs, ADR 0004 D6) ---
+
+/** `scan://started` — fired once, before any region runs. */
+export interface ScanStartedEvent {
+  scanId: number;
+  regions: string[];
+}
+
+/** `scan://region` — fired as each region finishes; `result` is the full accumulating scan. */
+export interface ScanRegionEvent {
+  scanId: number;
+  region: string;
+  regionStatus: 'ok' | 'partial';
+  result: ScanResult;
+}
+
+/** `scan://done` — terminal. */
+export interface ScanDoneEvent {
+  scanId: number;
+  status: ScanStatus;
+}
+
+/** Per-region UI state during a progressive scan. */
+export type RegionScanState = 'running' | 'done' | 'partial' | 'skipped';
 
 export interface ResourceRef {
   resourceType: ResourceType;

@@ -14,6 +14,7 @@ use serde_json::Value;
 use crate::model::{DetectorKind, ResourceType};
 
 /// One resource as seen by a detector during one region's scan.
+#[derive(Clone)]
 pub struct RawFinding {
     pub resource_type: ResourceType,
     pub resource_id: String,

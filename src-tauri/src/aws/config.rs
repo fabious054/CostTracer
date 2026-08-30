@@ -26,26 +26,6 @@ pub fn resolve_region(explicit: Option<&str>) -> String {
         .unwrap_or_else(|| DEFAULT_REGION.to_string())
 }
 
-/// All regions we can reasonably say are "active or configured", de-duplicated, never empty.
-pub fn collect_regions(explicit: Option<&str>, config_default: Option<&str>) -> Vec<String> {
-    let candidates = [
-        explicit.map(str::to_string),
-        std::env::var("AWS_REGION").ok(),
-        std::env::var("AWS_DEFAULT_REGION").ok(),
-        config_default.map(str::to_string),
-    ];
-    let mut out: Vec<String> = Vec::new();
-    for c in candidates.into_iter().flatten() {
-        if !c.is_empty() && !out.contains(&c) {
-            out.push(c);
-        }
-    }
-    if out.is_empty() {
-        out.push(DEFAULT_REGION.to_string());
-    }
-    out
-}
-
 /// Static keys (manual entry, resumed session, or SSO role credentials).
 pub async fn from_static_keys(
     access_key_id: &str,

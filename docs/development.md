@@ -32,15 +32,18 @@ src/                          Angular webview — no credential or AWS SDK code 
   app/core/
     ipc/tauri-ipc.service.ts    the only caller of Tauri `invoke`
     models/                     DTOs mirrored from src-tauri/src/model.rs
-      aws.ts, aws-regions.ts      connection-side types + the region picker list
-      scan.ts                     scan result / resource / confidence-level types
+      aws.ts, aws-regions.ts      connection-side types + the SSO Identity Center region list
+      scan.ts                     scan result / resource / confidence types + the scan:// event payloads
       ipc-contracts.ts            the typed command map (args + result per command)
     connection/
       connection.state.ts         the finite state machine: ConnectionState + ConnectionEvent + reduce()
       connection.store.ts         signal store; drives side effects, feeds outcomes back through reduce()
       *.spec.ts                   reducer negative-path tests + store flow tests
+    events/
+      tauri-events.service.ts     thin wrapper over @tauri-apps/api `listen` (scan:// progress events)
     scan/
-      scan.store.ts               signal store for run / load-latest / mark-intentional
+      scan.store.ts               signal store: progressive event-driven run, per-account isolation,
+                                  region-by-region merge, cancel, load-latest, mark-intentional
     sso/
       saved-urls.ts               locally-remembered Start URLs (localStorage) — see Notes
     format/
@@ -52,22 +55,26 @@ src/                          Angular webview — no credential or AWS SDK code 
   app/features/
     onboarding/                   one component per step (see docs/scope-1-connection-flow.md)
     main/                         the post-connection screen: account bar + scan
-      main-view.component.ts        replaces the Scope 1 "connected" account card
-      scan-panel.component.ts       first-run CTA, scan meta + rescan, the 3 detector sections
+      main-view.component.ts        account bar: id, region count + live per-region status tooltip
+      scan-panel.component.ts       first-run CTA, one fixed status line (progress + cancel),
+                                   pre-scan multi-region warning, region panel, stale-credential
+                                   banner, the 3 detector sections
       detector-section.component.ts full per-detector inventory, count, region errors, collapse
       resource-row.component.ts     one resource; alerts highlighted + mandatory explanation
     shell/
       titlebar.component.ts        custom window chrome + language toggle + app version label
 src-tauri/src/
   lib.rs                       Tauri entry point (builder, state, command registration)
-  commands.rs                  one #[tauri::command] per side effect (18 commands)
+  commands.rs                  one #[tauri::command] per side effect (20 commands)
   session.rs                   in-memory OnboardingSession — holds secrets between commands
   vault.rs                     keyring (OS-native secret store) wrapper, with blob chunking
   error.rs, util.rs            shared error type + helpers
-  aws/                         config, identity (validate + probe), permission_audit, sso, local_config
+  aws/                         config, identity, regions (DescribeRegions discovery), permission_audit, sso, local_config
   detectors/                   idle-resource detectors: ebs, elastic_ip, snapshot (+ mod = run_region)
-  scan.rs                      scan orchestrator: load credential → validate → run detectors per region → persist
-  store/                       bundled SQLite (rusqlite): migrations + record_scan / build_scan_result / intentional flags
+  scan.rs                      scan orchestrator: discover regions → run detectors region-by-region,
+                               emitting + persisting each as it finishes, cancellable mid-run
+  store/                       bundled SQLite (rusqlite): migrations + begin_scan / record_region /
+                               finish_scan (per-region txn) + build_scan_result + intentional flags
   pricing/                     fixed price table (price-table.toml, embedded) + pure estimate() (Scope 3, ADR 0003)
   model.rs                     serde DTOs — source of truth for the frontend types
   tests/localstack.rs          opt-in #[ignore] harness — detector→store→pricing against LocalStack (ADR 0003 D4)
@@ -77,6 +84,7 @@ docs/
   adr/0001-angular-state-management.md   hand-rolled signal store + pure reducer
   adr/0002-local-scan-persistence.md     SQLite engine, retention, streak semantics, kept the hand-rolled store
   adr/0003-resource-cost-estimation.md   price-table format, cost math in the core, USD/BRL, LocalStack
+  adr/0004-multi-region-scan.md          discovery, per-region persistence, cancellation, scan:// events
   iam-policy-minimal.json      embedded into the binary via include_str!; served by policy_minimal_read
 docker-compose.localstack.yml  opt-in LocalStack container for the harness above (not the app, not CI)
 scripts/localstack-seed.sh     seeds the LocalStack fixture the harness expects
@@ -84,27 +92,30 @@ scripts/localstack-seed.sh     seeds the LocalStack fixture the harness expects
 
 ## Verification status
 
-Scopes 1–3 are closed and tagged (`v0.1.0-scope1`, `v0.2.0-scope2`, `v0.3.0-scope3` on `main`) —
-Phase 0 is complete. The app has run live against a real AWS account throughout; see
+Scopes 1–4 are closed and tagged (`v0.1.0-scope1`, `v0.2.0-scope2`, `v0.3.0-scope3`,
+`v0.4.0-scope4` on `main`) — Phase 0 is complete, Phase 1 is in progress (Scope 4 was its first
+scope). The app has run live against a real AWS account throughout; see
 `cost-tracer/scope-reports/` for the per-scope validation logs.
 
-- **Frontend**: `ng build` (dev + prod) clean; 44 unit tests pass (reducer + connection store +
-  scan store + i18n key-parity + saved-urls + event-time + cost formatting). Prod bundle ≈ 73 kB
-  estimated transfer.
-- **Rust core**: `cargo check` clean; `cargo test` 19/19 (confidence-scale cutoffs, scan-store
-  coverage/streak/scoping, vault chunk round-trip, price-table shape + `estimate()` per resource
-  type incl. the unpriced-region path, demo-seed fixture). One further test, `tests/localstack.rs`,
-  is `#[ignore]` —
-  the opt-in LocalStack harness (see below). Crate families: `aws-config` /
+- **Frontend**: `ng build` (dev + prod) clean; 47 unit tests pass (reducer + connection store +
+  scan store, incl. progressive multi-region merge and per-account isolation + i18n key-parity +
+  saved-urls + event-time + cost formatting). Prod bundle ≈ 75 kB estimated transfer.
+- **Rust core**: `cargo check` clean; `cargo test` 21/21 (confidence-scale cutoffs; scan-store
+  coverage/streak, account scoping incl. `latest_is_scoped_to_the_account` and
+  `a_scan_can_only_be_read_back_as_its_own_account`, `begin_scan`/`finish_scan` lifecycle;
+  vault chunk round-trip; price-table shape + `estimate()` per resource type incl. the
+  unpriced-region path; demo-seed fixture). One further test, `tests/localstack.rs`, is
+  `#[ignore]` — the opt-in LocalStack harness (see below). Crate families: `aws-config` /
   `aws-sdk-{sts,iam,ec2,sso,ssooidc}` v1, `aws-credential-types` v1, `keyring` v3, `rusqlite` 0.32
-  (`bundled`), `toml` 0.8, `tauri` v2, `tokio` v1 — exact resolved versions in `Cargo.toml` /
-  `Cargo.lock`.
+  (`bundled`), `toml` 0.8, `tauri` v2, `tokio` v1, `tokio-util` 0.7 (`CancellationToken`) — exact
+  resolved versions in `Cargo.toml` / `Cargo.lock`.
 - **Not covered by automated tests**: real AWS SDK calls (manual validation only); rendering of the
-  scan components (checked visually). The alert-path scan UI and the reauth-required flow were
-  validated during Scope 2 via temporary `#[cfg(debug_assertions)]` dev affordances that were
-  removed before the scope closed — a real scan that finds an idle resource, and the
-  Observed→Confirmed progression over real days, remain unobserved (the owner won't create billable
-  AWS resources just to test).
+  scan components — the progressive status line, cancel, region panel and the stale-credential /
+  regions-unknown states are checked visually. Validated live against a real multi-region account
+  during Scope 4: a full progressive scan, cancellation, cross-account isolation, and the
+  missing-`ec2:DescribeRegions` path (explicit failure, no silent single-region fallback). Still
+  unobserved: a real scan that finds an idle resource and the Observed→Confirmed progression over
+  real days (the owner won't create billable AWS resources just to test).
 
 ## Estimated cost — the price table (Scope 3, ADR 0003)
 
@@ -171,8 +182,9 @@ available on their own: `npm run localstack:up` / `localstack:seed` / `localstac
 `AWS_ENDPOINT_URL=http://localhost:4566 npm run tauri:dev` (Git Bash) or
 `$env:AWS_ENDPOINT_URL = "http://localhost:4566"; npm run tauri:dev` (PowerShell).
 
-Then in the app: **Manual Access Key** → `test` / `test`, region `sa-east-1` → connect → run a
-scan. The connect → scan → cost UI renders end to end.
+Then in the app: **Manual Access Key** → `test` / `test` → connect → run a scan. The
+connect → scan → cost UI renders end to end. (There is no region field any more — Scope 4; the
+scan discovers regions itself. LocalStack/moto returns all ~34 as "enabled".)
 
 - **The variable is read once, at process start.** It can't be injected into a `tauri:dev` that's
   already running — stop it and relaunch in the same shell with the variable set. If you see
@@ -233,8 +245,12 @@ affordances (e.g. a `dev_force_reauth`) get removed at closure. Touch points:
   either; no functional impact, just accumulation.
 - **"Mark as intentional" is a local flag** (`resource_exception` table). It only appears on
   alerting rows and never writes anything to AWS.
-- `scan_run` is a single call with no progress events — accounts with many regions show only a
-  spinner until it finishes.
+- `scan_run` is progressive (Scope 4): the core discovers the enabled regions, then runs and
+  persists them one at a time, emitting `scan://started` → `scan://region` (per region) →
+  `scan://done` on the Tauri event bus. The frontend merges each region in as it lands and can
+  cancel mid-run via `scan_cancel` — finished regions stay saved, the in-flight one is discarded,
+  not-started ones never run. Per-region status is live-only; it is not rebuilt from a stored
+  scan on reload (backlog — see the Scope 4 report).
 - Dates cross the IPC as **unix seconds** (`i64` / `number`); the webview formats them
   (locale-aware, machine-local timezone).
 

@@ -2,7 +2,6 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { FormsModule } from '@angular/forms';
 import { ConnectionStore } from '../../../core/connection/connection.store';
 import { I18nService } from '../../../core/i18n/i18n.service';
-import { RegionFieldComponent } from '../ui/region-field.component';
 import { WizardShellComponent } from '../ui/wizard-shell.component';
 
 /**
@@ -12,7 +11,7 @@ import { WizardShellComponent } from '../ui/wizard-shell.component';
 @Component({
   selector: 'ct-step-method-select',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [WizardShellComponent, FormsModule, RegionFieldComponent],
+  imports: [WizardShellComponent, FormsModule],
   template: `
     <ct-wizard-shell [title]="i18n.t('method.title')" [subtitle]="i18n.t('method.subtitle')">
       @if (view(); as v) {
@@ -41,13 +40,6 @@ import { WizardShellComponent } from '../ui/wizard-shell.component';
                   </select>
                 </label>
               }
-
-              <ct-region-field
-                [label]="i18n.t('region.label')"
-                [placeholder]="i18n.t('region.placeholder')"
-                [value]="region()"
-                (valueChange)="region.set($event)"
-              />
 
               <button type="button" class="ct-btn ct-btn--primary ct-btn--block" (click)="useDetected()">
                 {{ i18n.t('method.detected.use') }}
@@ -123,7 +115,6 @@ export class MethodSelectComponent {
   });
 
   protected readonly profile = signal<string>(this.initialProfile());
-  protected readonly region = signal<string>(this.view()?.detected?.defaultRegion ?? '');
 
   private initialProfile(): string {
     const s = this.store.state();
@@ -132,7 +123,6 @@ export class MethodSelectComponent {
 
   protected useDetected(): void {
     const profile = this.profile().trim() || null;
-    const region = this.region().trim() || null;
-    void this.store.useDetected(profile, region);
+    void this.store.useDetected(profile);
   }
 }

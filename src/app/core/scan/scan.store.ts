@@ -1,15 +1,91 @@
-import { computed, inject, Injectable, signal } from '@angular/core';
+import { computed, effect, inject, Injectable, signal } from '@angular/core';
 import { ConnectionStore } from '../connection/connection.store';
+import { TauriEventsService } from '../events/tauri-events.service';
 import { TauriIpcService } from '../ipc/tauri-ipc.service';
 import {
+  AccountCostRollup,
+  DetectorCostRollup,
   DetectorKind,
+  DetectorResult,
+  RegionScanState,
   ResourceItem,
   ResourceRef,
   ResourceType,
+  ScanDoneEvent,
+  ScanRegionEvent,
   ScanResult,
+  ScanStartedEvent,
+  ScanStatus,
 } from '../models/scan';
 
 type ScanPhase = 'idle' | 'scanning' | 'error';
+
+/**
+ * Replace one region's slice of a scan result with the fresh data for that region, keeping every
+ * other region as it was — so a rescan updates the inventory in place, region by region, instead
+ * of collapsing to just what's been re-scanned so far. Rollups are recomputed from the merge.
+ */
+function mergeRegion(prev: ScanResult, ev: ScanRegionEvent): ScanResult {
+  const r = ev.region;
+  const freshItems = new Map<DetectorKind, ResourceItem[]>();
+  const freshErrs = new Map<DetectorKind, ScanResult['detectors'][number]['regionErrors']>();
+  for (const d of ev.result.detectors) {
+    freshItems.set(d.kind, d.items.filter((i) => i.region === r));
+    freshErrs.set(d.kind, d.regionErrors.filter((e) => e.region === r));
+  }
+
+  const detectors: DetectorResult[] = prev.detectors.map((d) => {
+    const items = [...d.items.filter((i) => i.region !== r), ...(freshItems.get(d.kind) ?? [])];
+    const regionErrors = [
+      ...d.regionErrors.filter((e) => e.region !== r),
+      ...(freshErrs.get(d.kind) ?? []),
+    ];
+    return { ...d, items, regionErrors, costRollup: detectorRollup(items) };
+  });
+
+  return {
+    ...ev.result, // scanId / startedAt / fxUsdBrl / status / regions come from the running scan
+    detectors,
+    costRollup: accountRollup(detectors),
+  };
+}
+
+function detectorRollup(items: ResourceItem[]): DetectorCostRollup {
+  let monthlyUsd = 0;
+  let pricedCount = 0;
+  let unpricedCount = 0;
+  for (const i of items) {
+    const ec = i.estimatedCost;
+    if (!ec) continue;
+    if (ec.monthlyUsd != null) {
+      monthlyUsd += ec.monthlyUsd;
+      pricedCount += 1;
+    } else if (ec.unavailable) {
+      unpricedCount += 1;
+    }
+  }
+  return { monthlyUsd, pricedCount, unpricedCount };
+}
+
+function accountRollup(detectors: DetectorResult[]): AccountCostRollup {
+  let primaryMonthlyUsd = 0;
+  let contextMonthlyUsd = 0;
+  let unpricedCount = 0;
+  for (const d of detectors) {
+    for (const i of d.items) {
+      const ec = i.estimatedCost;
+      const level = i.confidence?.level;
+      if (!ec || !level) continue;
+      if (ec.monthlyUsd == null) {
+        if (ec.unavailable) unpricedCount += 1;
+        continue;
+      }
+      if (level === 'probable' || level === 'confirmed') primaryMonthlyUsd += ec.monthlyUsd;
+      else contextMonthlyUsd += ec.monthlyUsd;
+    }
+  }
+  return { primaryMonthlyUsd, contextMonthlyUsd, unpricedCount };
+}
 
 function errMsg(e: unknown): string {
   if (typeof e === 'string') return e;
@@ -24,32 +100,81 @@ const TYPE_TO_KIND: Record<ResourceType, DetectorKind> = {
 };
 
 /**
- * Owns the latest scan result and the scan lifecycle. Hand-rolled signal store (ADR 0002, D4).
- * All scan logic and persistence live in the Rust core — this just calls commands and holds
- * the returned `ScanResult`.
+ * Owns the latest scan result and the scan lifecycle. Hand-rolled signal store (ADR 0002 D4).
+ * Scope 4: a scan is now progressive — the core emits `scan://started` / `scan://region` /
+ * `scan://done`, and this store merges each region in as it lands, tracks per-region status for
+ * the "checking…" indicator, and can cancel a run in flight.
  */
 @Injectable({ providedIn: 'root' })
 export class ScanStore {
   private readonly ipc = inject(TauriIpcService);
+  private readonly events = inject(TauriEventsService);
   private readonly connection = inject(ConnectionStore);
 
   private readonly _phase = signal<ScanPhase>('idle');
   private readonly _result = signal<ScanResult | null>(null);
   private readonly _error = signal<string | null>(null);
+  private readonly _regionStatus = signal<Record<string, RegionScanState>>({});
+  private readonly _scanStatus = signal<ScanStatus | null>(null);
 
   readonly phase = this._phase.asReadonly();
-  readonly result = this._result.asReadonly();
-  readonly error = this._error.asReadonly();
-  readonly hasResult = computed(() => this._result() !== null);
-
   /**
-   * Load the most recent stored scan *for the connected account*. Clears first, so reconnecting
-   * to a different account never shows the previous account's results.
+   * The connected account's scan result, or null. Guarded: a result whose `accountId` isn't the
+   * currently connected account never surfaces — a stale signal from a previous connection must
+   * not paint another account's data, not even for one frame (cross-account isolation).
    */
+  readonly result = computed<ScanResult | null>(() => {
+    const r = this._result();
+    return r && r.accountId === this.connectedAccount() ? r : null;
+  });
+  readonly error = this._error.asReadonly();
+  readonly regionStatus = this._regionStatus.asReadonly();
+  readonly scanStatus = this._scanStatus.asReadonly();
+  readonly hasResult = computed(() => this.result() !== null);
+
+  /** The account id of the current `connected` step, or null when not connected. */
+  private readonly connectedAccount = computed(() => {
+    const s = this.connection.state();
+    return s.step === 'connected' ? s.account.accountId : null;
+  });
+
+  /** The account the store is currently bound to — `undefined` until the effect first runs. */
+  private boundAccount: string | null | undefined = undefined;
+
+  constructor() {
+    // The scan result is per-account. Bind the store to the connected account so switching
+    // accounts — or disconnecting — always reloads that account's history and never leaves a
+    // previous one on screen, with or without restarting the app (cf. the Scope 2 leak).
+    effect(() => {
+      const account = this.connectedAccount();
+      if (account === this.boundAccount) return;
+      const firstBind = this.boundAccount === undefined;
+      this.boundAccount = account;
+      if (!account) {
+        this.reset();
+      } else if (!firstBind) {
+        // A real account switch — drop the previous account's state hard, then load the new one.
+        void this.loadLatest();
+      } else if (this._phase() === 'idle' && this._result() === null) {
+        // Initial bind on a pristine store — the app just connected; pull this account's history.
+        void this.loadLatest();
+      }
+    });
+  }
+
+  /** { done, total } across the current scan's regions — drives the progress line. */
+  readonly regionProgress = computed(() => {
+    const s = this._regionStatus();
+    const total = Object.keys(s).length;
+    const done = Object.values(s).filter((v) => v !== 'running').length;
+    return { done, total };
+  });
+
+  private unlisteners: Array<() => void> = [];
+
+  /** Most recent stored scan for the connected account. Clears first (never show a stale account). */
   async loadLatest(): Promise<void> {
-    this._result.set(null);
-    this._error.set(null);
-    this._phase.set('idle');
+    this.reset();
     try {
       this._result.set(await this.ipc.call('scan_latest'));
     } catch {
@@ -60,27 +185,95 @@ export class ScanStore {
   async run(): Promise<void> {
     this._phase.set('scanning');
     this._error.set(null);
+    this._scanStatus.set(null);
+    await this.subscribe();
     try {
       const outcome = await this.ipc.call('scan_run');
       if (outcome.status === 'reauthRequired') {
-        this._phase.set('idle');
+        this.finish();
         void this.connection.disconnect();
         return;
       }
+      // `scan://region` events already set the result; this is the authoritative final state.
       this._result.set(outcome.result);
-      this._phase.set('idle');
+      this._scanStatus.set(outcome.result.status);
+      this.finish();
     } catch (e) {
       this._error.set(errMsg(e));
       this._phase.set('error');
+      this.unsubscribe();
     }
   }
 
-  /** DEV-ONLY — seed a realistic fixture for reviewing the cost UI. Removed at Scope 3 closure. */
-  async seedDemo(): Promise<void> {
-    this._error.set(null);
+  /** Stop a scan in flight. Regions already finished stay; the rest never run (ADR 0004 D5). */
+  async cancel(): Promise<void> {
     try {
-      this._result.set(await this.ipc.call('dev_seed_scan'));
-      this._phase.set('idle');
+      await this.ipc.call('scan_cancel');
+    } catch {
+      /* the scan will end on its own; nothing to recover */
+    }
+  }
+
+  private async subscribe(): Promise<void> {
+    this.unsubscribe();
+    this.unlisteners = await Promise.all([
+      this.events.on<ScanStartedEvent>('scan://started', (ev) => {
+        // Keep the previous scan's results on screen until the first region of this one lands —
+        // clearing here left a blank screen for the seconds region 1 takes.
+        this._scanStatus.set(null);
+        this._regionStatus.set(
+          Object.fromEntries(ev.regions.map((r) => [r, 'running' as RegionScanState])),
+        );
+      }),
+      this.events.on<ScanRegionEvent>('scan://region', (ev) => {
+        const prev = this._result();
+        this._result.set(prev ? mergeRegion(prev, ev) : ev.result);
+        this._regionStatus.update((m) => ({
+          ...m,
+          [ev.region]: ev.regionStatus === 'partial' ? 'partial' : 'done',
+        }));
+      }),
+      this.events.on<ScanDoneEvent>('scan://done', (ev) => {
+        this._scanStatus.set(ev.status);
+        this._regionStatus.update((m) => {
+          const next = { ...m };
+          for (const k of Object.keys(next)) if (next[k] === 'running') next[k] = 'skipped';
+          return next;
+        });
+        this.finish();
+      }),
+    ]);
+  }
+
+  private unsubscribe(): void {
+    for (const off of this.unlisteners) off();
+    this.unlisteners = [];
+  }
+
+  private finish(): void {
+    this._phase.set('idle');
+    this.unsubscribe();
+  }
+
+  private reset(): void {
+    this._result.set(null);
+    this._error.set(null);
+    this._phase.set('idle');
+    this._regionStatus.set({});
+    this._scanStatus.set(null);
+    this.unsubscribe();
+  }
+
+  /** DEV-ONLY — seed a realistic fixture for reviewing the cost/inventory UI. Kept permanently. */
+  async seedDemo(): Promise<void> {
+    this.reset();
+    try {
+      const result = await this.ipc.call('dev_seed_scan');
+      this._result.set(result);
+      this._scanStatus.set(result.status);
+      this._regionStatus.set(
+        Object.fromEntries(result.regions.map((r) => [r, 'done' as RegionScanState])),
+      );
     } catch (e) {
       this._error.set(errMsg(e));
       this._phase.set('error');

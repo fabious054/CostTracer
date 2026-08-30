@@ -10,12 +10,10 @@ export interface ManualCredentialInput {
   secretAccessKey: string;
   /** Required for temporary credentials (Access Key ID starting with `ASIA`). */
   sessionToken: string | null;
-  region: string | null;
 }
 
 export interface UseDetectedInput {
   profile: string | null;
-  region: string | null;
 }
 
 export interface SsoStartInput {
@@ -64,8 +62,9 @@ export interface IpcCommandMap {
   connection_disconnect: { args: undefined; result: void };
   session_discard: { args: undefined; result: void };
 
-  // Scope 2 — idle-resource scan
+  // Scope 2 + 4 — idle-resource scan (progressive, multi-region)
   scan_run: { args: undefined; result: import('./scan').ScanRunOutcome };
+  scan_cancel: { args: undefined; result: void };
   scan_latest: { args: undefined; result: import('./scan').ScanResult | null };
   resource_mark_intentional: { args: { input: import('./scan').ResourceRef }; result: void };
   resource_unmark_intentional: { args: { input: import('./scan').ResourceRef }; result: void };

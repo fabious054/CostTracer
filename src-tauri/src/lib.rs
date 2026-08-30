@@ -15,6 +15,7 @@ pub mod store;
 
 use tauri::Manager;
 
+use commands::ScanCancel;
 use session::OnboardingSession;
 use store::Db;
 
@@ -24,6 +25,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(OnboardingSession::default())
+        .manage(ScanCancel::default())
         .setup(|app| {
             let dir = app.path().app_local_data_dir()?;
             std::fs::create_dir_all(&dir)?;
@@ -47,6 +49,7 @@ pub fn run() {
             commands::connection_disconnect,
             commands::session_discard,
             commands::scan_run,
+            commands::scan_cancel,
             commands::scan_latest,
             commands::resource_mark_intentional,
             commands::resource_unmark_intentional,

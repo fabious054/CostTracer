@@ -2,6 +2,7 @@ pub mod config;
 pub mod identity;
 pub mod local_config;
 pub mod permission_audit;
+pub mod regions;
 pub mod sso;
 
 use aws_smithy_runtime_api::client::result::SdkError;

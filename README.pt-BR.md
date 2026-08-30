@@ -4,13 +4,14 @@
 
 > Ferramenta local-first de visibilidade de custos AWS. Rastreia recursos ociosos ao longo do tempo para confirmar desperdício real — somente leitura, nenhuma credencial sai da sua máquina.
 
-🚧 **Status:** **Fase 0 concluída.** Três escopos estão fechados e com tag:
+🚧 **Status:** **Fase 0 concluída; Fase 1 em andamento.** Quatro escopos estão fechados e com tag:
 
 - **`v0.1.0-scope1` — Fluxo de conexão com a AWS.** Conexão via configuração AWS local detectada automaticamente, entrada manual de access key, ou autorização por dispositivo do IAM Identity Center (SSO). Toda identidade é verificada quanto a permissões excessivas antes do uso; credenciais ficam no cofre nativo do sistema, nunca em texto plano.
 - **`v0.2.0-scope2` — Detectores de recursos ociosos.** Volumes EBS não anexados, Elastic IPs ociosos e snapshots órfãos, com histórico local de scans (SQLite) e uma escala de confiança de quatro níveis (Observado → Persistindo → Provável → Confirmado) que sobe quanto mais tempo um recurso permanece ocioso ao longo dos scans. Todo recurso sinalizado traz uma explicação em linguagem clara; qualquer recurso pode ser marcado como *intencional* — um marcador puramente local, a ferramenta nunca escreve na AWS.
 - **`v0.3.0-scope3` — Custo estimado.** Todo recurso sinalizado mostra um custo mensal estimado a partir de uma tabela de preços fixa e local (nove regiões), somado por detector e por conta. Primário em USD; em português segue um BRL aproximado por taxa fixa. Recursos numa região que a tabela não cobre são contabilizados à parte, nunca aproximados. Sem chamada à AWS Price List API.
+- **`v0.4.0-scope4` — Cobertura multi-região** *(primeiro escopo da Fase 1)*. O scan descobre sozinho as regiões habilitadas da conta (`ec2:DescribeRegions`) e verifica todas — sem escolha manual de região. Roda região a região, mostrando os resultados conforme cada uma termina e permitindo cancelar no meio; regiões já concluídas ficam salvas. Quando a credencial conectada não consegue listar as regiões, a ferramenta diz isso claramente e não chuta uma contagem nem roda um scan inútil.
 
-Essas tags marcam escopos fechados, não downloads empacotados — ainda não há instalador. Rode a partir do código: `npm install` e depois `npm run tauri:dev`. A Fase 1 é a próxima (ver Roadmap).
+Essas tags marcam escopos fechados, não downloads empacotados — ainda não há instalador. Rode a partir do código: `npm install` e depois `npm run tauri:dev`. A Fase 1 continua (ver Roadmap).
 
 ---
 
@@ -30,7 +31,7 @@ O CostTracer é uma aplicação desktop que audita sua conta AWS em busca de rec
 2. **Histórico** — persiste o que foi observado ao longo do tempo, transformando uma "suspeita" pontual em um padrão confirmado.
 3. **Confiança** — mostra o quão certa a ferramenta está de que algo é desperdício, com base no histórico acumulado, em linguagem clara para o usuário confiar.
 
-A maioria das ferramentas do mercado cobre só o item 1. O CostTracer é desenhado em torno dos três pilares desde o início — no build atual, os três já estão no lugar: o coletor (três detectores), o histórico (um log SQLite local de cada observação) e a camada de confiança (uma escala de quatro níveis calculada a partir desse histórico).
+A maioria das ferramentas do mercado cobre só o item 1. O CostTracer é desenhado em torno dos três pilares desde o início — no build atual, os três já estão no lugar: o coletor (três detectores, rodados em todas as regiões habilitadas), o histórico (um log SQLite local de cada observação) e a camada de confiança (uma escala de quatro níveis calculada a partir desse histórico).
 
 ## Por que local-first
 
@@ -51,7 +52,8 @@ A maioria das ferramentas do mercado cobre só o item 1. O CostTracer é desenha
   - ✅ Fluxo de conexão com a AWS + auditoria de permissões + cofre nativo — `v0.1.0-scope1`
   - ✅ Detectores de recursos ociosos (EBS, Elastic IP, snapshot) + histórico de scans + escala de confiança de quatro níveis — `v0.2.0-scope2`
   - ✅ Custo mensal estimado por recurso sinalizado, por detector e por conta (tabela de preços fixa e local, USD com BRL aproximado só em pt) — `v0.3.0-scope3`
-- **Fase 1 — Confiabilidade e abrangência** *(próxima)*: mais tipos de recurso, suporte multi-região, sistema de exceções/allowlist (ex: exclusões baseadas em tag) para reduzir falsos positivos.
+- **Fase 1 — Confiabilidade e abrangência** *(em andamento)*: mais tipos de recurso, suporte multi-região, sistema de exceções/allowlist (ex: exclusões baseadas em tag) para reduzir falsos positivos.
+  - ✅ Cobertura multi-região — regiões descobertas automaticamente, scan progressivo região a região, cancelável — `v0.4.0-scope4`
 - **Fase 2 — Ação assistida**: simulação dry-run opcional e, eventualmente, execução controlada — começando apenas pelos tipos de recurso em que a camada de confiança mais confia.
 - **Fase 3 — Multi-conta**: relevante para organizações que usam AWS Organizations; não é prioridade no curto prazo.
 

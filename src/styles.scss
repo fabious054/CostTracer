@@ -90,7 +90,7 @@ html, body {
 .ct-tooltip {
   position: fixed;
   z-index: 9999;
-  max-width: 260px;
+  max-width: 300px;
   padding: 7px 9px;
   border-radius: var(--ct-radius);
   background: var(--ct-panel);
@@ -98,7 +98,9 @@ html, body {
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
   color: var(--ct-text);
   font-size: 11px;
-  line-height: 1.4;
+  line-height: 1.5;
+  /* honour \n in the text (used for one-per-line lists) */
+  white-space: pre-line;
   pointer-events: none;
   animation: ct-tooltip-in 0.09s ease-out;
 }

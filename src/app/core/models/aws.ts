@@ -50,6 +50,11 @@ export interface AccountInfo {
   userId: string;
   /** Active / configured regions, de-duplicated. Never empty (falls back to `us-east-1`). */
   regions: string[];
+  /**
+   * `false` when region discovery (`ec2:DescribeRegions`) failed at connect time — `regions` is
+   * then only the single-region safety fallback and the count must not be shown as a fact.
+   */
+  regionsDiscovered: boolean;
   sourceKind: CredentialSourceKind;
 }
 

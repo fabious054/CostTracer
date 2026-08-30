@@ -60,7 +60,6 @@ const EN = {
   'manual.validate': 'Validate',
 
   // region field
-  'region.label': 'Default region (optional)',
   'region.placeholder': 'e.g. us-east-1',
   'region.ssoLabel': 'Identity Center region',
 
@@ -132,6 +131,9 @@ const EN = {
   'account.subtitle': 'Read-only. Credential stored in your OS vault.',
   'account.accountId': 'Account ID',
   'account.region': 'Region',
+  'account.regionCount': '{n} regions',
+  'account.regionsUnknown': 'regions unknown',
+  'account.regionsUnknown.hint': 'Missing permission: ec2:DescribeRegions.',
   'account.regions': 'Regions',
   'account.signedInAs': 'Signed in as',
   'account.via': 'Via',
@@ -146,10 +148,25 @@ const EN = {
   'scan.runFirst': 'Run the first scan',
   'scan.rescan': 'Rescan',
   'scan.scanning': 'Scanning…',
+  'scan.cancel': 'Cancel',
+  'scan.regions.show': 'show regions',
+  'scan.regions.hide': 'hide',
+  'scan.progress': 'Checking {done}/{total} regions…',
+  'scan.cancelled': 'Scan cancelled — {done} of {total} regions checked',
+  'scan.multiRegion.warn.count':
+    'This account has {n} enabled regions — all of them will be checked.',
+  'scan.multiRegion.warn.readonly':
+    'Read-only in every region — nothing is created, changed, or deleted.',
+  'scan.multiRegion.warn.time': 'This can take longer than a single-region scan.',
+  'scan.multiRegion.warn.confirm': 'Run the scan',
   'scan.error.title': 'Scan failed',
   'scan.error.retry': 'Try again',
   'scan.meta.lastRun': 'Last scan {when}',
   'scan.meta.partial': 'Partial — some regions failed',
+  'scan.staleCredential':
+    "Showing the last scan ({when}). The credential connected now can't verify your regions — reconnect with a valid one to refresh this.",
+  'scan.regionsBlocked':
+    "The connected credential can't verify your regions (ec2:DescribeRegions is missing). Reconnect with a valid credential to scan.",
   'scan.detector.ebs-unattached': 'Unattached EBS volumes',
   'scan.detector.elastic-ip-idle': 'Idle Elastic IPs',
   'scan.detector.orphan-snapshot': 'Orphan snapshots',
@@ -270,7 +287,6 @@ const PT: Record<MessageKey, string> = {
   'manual.sessionToken.optional': 'Só para credenciais temporárias (ASIA…).',
   'manual.validate': 'Validar',
 
-  'region.label': 'Região padrão (opcional)',
   'region.placeholder': 'ex: us-east-1',
   'region.ssoLabel': 'Região do Identity Center',
 
@@ -337,6 +353,9 @@ const PT: Record<MessageKey, string> = {
   'account.accountId': 'Account ID',
   'account.region': 'Região',
   'account.regions': 'Regiões',
+  'account.regionCount': '{n} regiões',
+  'account.regionsUnknown': 'regiões desconhecidas',
+  'account.regionsUnknown.hint': 'Permissão faltando: ec2:DescribeRegions.',
   'account.signedInAs': 'Conectado como',
   'account.via': 'Via',
   'account.disconnect': 'Desconectar',
@@ -350,10 +369,25 @@ const PT: Record<MessageKey, string> = {
   'scan.runFirst': 'Rodar o primeiro scan',
   'scan.rescan': 'Escanear de novo',
   'scan.scanning': 'Escaneando…',
+  'scan.cancel': 'Cancelar',
+  'scan.regions.show': 'ver regiões',
+  'scan.regions.hide': 'ocultar',
+  'scan.progress': 'Verificando {done}/{total} regiões…',
+  'scan.cancelled': 'Scan cancelado — {done} de {total} regiões verificadas',
+  'scan.multiRegion.warn.count':
+    'Esta conta tem {n} regiões habilitadas — todas serão verificadas.',
+  'scan.multiRegion.warn.readonly':
+    'Somente leitura em cada região — nada é criado, alterado ou removido.',
+  'scan.multiRegion.warn.time': 'Isso pode levar mais tempo que um scan de uma região só.',
+  'scan.multiRegion.warn.confirm': 'Rodar o scan',
   'scan.error.title': 'O scan falhou',
   'scan.error.retry': 'Tentar de novo',
   'scan.meta.lastRun': 'Último scan {when}',
   'scan.meta.partial': 'Parcial — algumas regiões falharam',
+  'scan.staleCredential':
+    'Mostrando o último scan ({when}). A credencial conectada agora não consegue verificar suas regiões — reconecte com uma credencial válida para atualizar.',
+  'scan.regionsBlocked':
+    'A credencial conectada não consegue verificar suas regiões (falta ec2:DescribeRegions). Reconecte com uma credencial válida para escanear.',
   'scan.detector.ebs-unattached': 'Volumes EBS não anexados',
   'scan.detector.elastic-ip-idle': 'Elastic IPs ociosos',
   'scan.detector.orphan-snapshot': 'Snapshots órfãos',

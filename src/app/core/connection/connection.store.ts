@@ -94,10 +94,10 @@ export class ConnectionStore {
 
   // --- credential capture ----------------------------------------------------
 
-  async useDetected(profile: string | null, region: string | null): Promise<void> {
+  async useDetected(profile: string | null): Promise<void> {
     this.dispatch({ type: 'validate/started', sourceKind: 'detected' });
     try {
-      const outcome = await this.ipc.call('credential_use_detected', { input: { profile, region } });
+      const outcome = await this.ipc.call('credential_use_detected', { input: { profile } });
       await this.handleValidation(outcome, 'detected');
     } catch (e) {
       this.dispatch({ type: 'validate/failed', sourceKind: 'detected', kind: 'invalid-or-expired', message: errMsg(e) });

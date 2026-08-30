@@ -1,18 +1,18 @@
-import { Directive, ElementRef, HostListener, inject, Input, OnDestroy } from '@angular/core';
+import { Directive, ElementRef, HostListener, inject, Input, OnChanges, OnDestroy } from '@angular/core';
 
 let uid = 0;
 
 /**
  * `[ctTooltip]="'text'"` — a small styled hover/focus hint box, appended to `<body>` and
  * positioned above the host (flips below if there's no room). Fast (≈120 ms), keyboard-friendly
- * (shows on focus, hides on Escape), and themed via the `.ct-tooltip` rule in `styles.scss`.
- * Replaces the native `title` (slow, unstyleable, invisible until you already hover).
+ * (shows on focus, hides on Escape), re-renders in place if the text changes while open, and
+ * themed via the `.ct-tooltip` rule in `styles.scss`. Replaces the native `title`.
  */
 @Directive({
   selector: '[ctTooltip]',
   standalone: true,
 })
-export class TooltipDirective implements OnDestroy {
+export class TooltipDirective implements OnChanges, OnDestroy {
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
 
   @Input('ctTooltip') text = '';
@@ -50,6 +50,18 @@ export class TooltipDirective implements OnDestroy {
     }
   }
 
+  /** Live-update the open box when the bound text changes (e.g. per-region status during a scan). */
+  ngOnChanges(): void {
+    if (this.box) {
+      if (this.text.trim()) {
+        this.box.textContent = this.text;
+        this.place();
+      } else {
+        this.hide();
+      }
+    }
+  }
+
   private build(): void {
     document.getElementById(this.id)?.remove();
     const box = document.createElement('div');
@@ -57,13 +69,20 @@ export class TooltipDirective implements OnDestroy {
     box.id = this.id;
     box.setAttribute('role', 'tooltip');
     box.textContent = this.text;
-    // Park it at the origin, invisible, so its wrapped size can be read without a flash.
-    box.style.left = '0';
-    box.style.top = '0';
     box.style.visibility = 'hidden';
     document.body.appendChild(box);
     this.host.setAttribute('aria-describedby', this.id);
     this.box = box;
+    this.place();
+    box.style.visibility = 'visible';
+  }
+
+  private place(): void {
+    const box = this.box;
+    if (!box) return;
+    // Park at the origin so the wrapped size reads clean, then position.
+    box.style.left = '0';
+    box.style.top = '0';
 
     const h = this.host.getBoundingClientRect();
     const bw = box.offsetWidth;
@@ -79,7 +98,6 @@ export class TooltipDirective implements OnDestroy {
 
     box.style.top = `${Math.round(top)}px`;
     box.style.left = `${Math.round(left)}px`;
-    box.style.visibility = 'visible';
   }
 
   ngOnDestroy(): void {

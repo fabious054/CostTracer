@@ -70,40 +70,39 @@ impl Db {
         self.conn.lock().expect("scan-history db mutex poisoned")
     }
 
-    /// Persist a scan: the `scan` row, one `observation` per resource, the `resource` streak
-    /// upsert, and any per-region detector errors. Returns the new scan id.
-    pub fn record_scan(
+    /// Open a scan row (`status = running`) and return its id. Regions are written per
+    /// `record_region`; the final status is set by `finish_scan` (ADR 0004 D2).
+    pub fn begin_scan(
         &self,
         started_at: i64,
-        finished_at: i64,
         account_id: &str,
         regions: &[String],
-        status: ScanStatus,
-        findings: &[RegionFinding],
-        region_errors: &[DetectorRegionError],
     ) -> AppResult<i64> {
+        let conn = self.lock();
+        conn.execute(
+            "INSERT INTO scan (started_at, finished_at, account_id, regions_json, status)
+             VALUES (?1, ?1, ?2, ?3, 'running')",
+            params![started_at, account_id, serde_json::to_string(regions)?],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    /// Persist one region's result — its observations, streak upserts, and detector errors — in a
+    /// single transaction. Called once per region, as that region finishes. A region in flight is
+    /// never written (ADR 0004 D2 / cancellation guarantee).
+    pub fn record_region(
+        &self,
+        scan_id: i64,
+        observed_at: i64,
+        account_id: &str,
+        region: &str,
+        findings: &[RawFinding],
+        detector_errors: &[(DetectorKind, String)],
+    ) -> AppResult<()> {
         let mut conn = self.lock();
         let tx = conn.transaction()?;
 
-        let status_str = match status {
-            ScanStatus::Ok => "ok",
-            ScanStatus::Partial => "partial",
-        };
-        tx.execute(
-            "INSERT INTO scan (started_at, finished_at, account_id, regions_json, status)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                started_at,
-                finished_at,
-                account_id,
-                serde_json::to_string(regions)?,
-                status_str
-            ],
-        )?;
-        let scan_id = tx.last_insert_rowid();
-
-        for rf in findings {
-            let f = &rf.finding;
+        for f in findings {
             tx.execute(
                 "INSERT INTO observation
                    (scan_id, observed_at, account_id, region, resource_type, resource_id,
@@ -111,9 +110,9 @@ impl Db {
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
                 params![
                     scan_id,
-                    started_at,
+                    observed_at,
                     account_id,
-                    rf.region,
+                    region,
                     f.resource_type.as_db(),
                     f.resource_id,
                     f.in_alert as i64,
@@ -139,24 +138,64 @@ impl Db {
                    last_alert_at  = CASE WHEN ?6 THEN ?5 ELSE NULL END",
                 params![
                     account_id,
-                    rf.region,
+                    region,
                     f.resource_type.as_db(),
                     f.resource_id,
-                    started_at,
+                    observed_at,
                     f.in_alert as i64,
                 ],
             )?;
         }
 
-        for e in region_errors {
+        for (detector, message) in detector_errors {
             tx.execute(
                 "INSERT INTO scan_region_error (scan_id, region, detector, message)
                  VALUES (?1, ?2, ?3, ?4)",
-                params![scan_id, e.region, e.detector.as_db(), e.message],
+                params![scan_id, region, detector.as_db(), message],
             )?;
         }
 
         tx.commit()?;
+        Ok(())
+    }
+
+    /// Set the scan's final status and finish time.
+    pub fn finish_scan(&self, scan_id: i64, status: ScanStatus, finished_at: i64) -> AppResult<()> {
+        let conn = self.lock();
+        conn.execute(
+            "UPDATE scan SET status = ?1, finished_at = ?2 WHERE id = ?3",
+            params![status.as_db(), finished_at, scan_id],
+        )?;
+        Ok(())
+    }
+
+    /// Convenience: a whole scan in one call (`begin` → per-region `record` → `finish`).
+    /// Used by tests and any caller that isn't streaming region-by-region.
+    pub fn record_scan(
+        &self,
+        started_at: i64,
+        finished_at: i64,
+        account_id: &str,
+        regions: &[String],
+        status: ScanStatus,
+        findings: &[RegionFinding],
+        region_errors: &[DetectorRegionError],
+    ) -> AppResult<i64> {
+        let scan_id = self.begin_scan(started_at, account_id, regions)?;
+        for region in regions {
+            let region_findings: Vec<RawFinding> = findings
+                .iter()
+                .filter(|rf| &rf.region == region)
+                .map(|rf| rf.finding.clone())
+                .collect();
+            let errs: Vec<(DetectorKind, String)> = region_errors
+                .iter()
+                .filter(|e| &e.region == region)
+                .map(|e| (e.detector, e.message.clone()))
+                .collect();
+            self.record_region(scan_id, started_at, account_id, region, &region_findings, &errs)?;
+        }
+        self.finish_scan(scan_id, status, finished_at)?;
         Ok(scan_id)
     }
 
@@ -177,9 +216,13 @@ impl Db {
     /// Most recent scan **for this account** — never another account's stale result.
     pub fn latest_scan_result(&self, account_id: &str) -> AppResult<Option<ScanResult>> {
         let conn = self.lock();
+        // Skip a `running` row — a scan still in flight, or one whose process was killed (ADR
+        // 0004 D3). Its observations still count toward streaks; it just isn't shown as "latest".
         let head: Option<i64> = conn
             .query_row(
-                "SELECT id FROM scan WHERE account_id = ?1 ORDER BY id DESC LIMIT 1",
+                "SELECT id FROM scan
+                 WHERE account_id = ?1 AND status != 'running'
+                 ORDER BY id DESC LIMIT 1",
                 params![account_id],
                 |r| r.get(0),
             )
@@ -289,18 +332,18 @@ fn scan_result_from_conn(
     scan_id: i64,
     account_id: &str,
 ) -> AppResult<ScanResult> {
+    // `account_id` in the WHERE, not just `id`: a scan can only ever be read back as its own
+    // account's — a mismatched (scan_id, account_id) pair is a no-row error, never another
+    // account's scan metadata (cross-account isolation).
     let (started_at, finished_at, regions_json, status_str): (i64, i64, String, String) = conn
         .query_row(
-            "SELECT started_at, finished_at, regions_json, status FROM scan WHERE id = ?1",
-            params![scan_id],
+            "SELECT started_at, finished_at, regions_json, status
+             FROM scan WHERE id = ?1 AND account_id = ?2",
+            params![scan_id, account_id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )?;
     let regions: Vec<String> = serde_json::from_str(&regions_json)?;
-    let status = if status_str == "partial" {
-        ScanStatus::Partial
-    } else {
-        ScanStatus::Ok
-    };
+    let status = ScanStatus::from_db(&status_str);
 
     let mut stmt = conn.prepare(
         "SELECT o.region, o.resource_type, o.resource_id, o.in_alert, o.created_at, o.facts_json,
@@ -591,6 +634,33 @@ mod tests {
     }
 
     #[test]
+    fn begin_finish_lifecycle_and_latest_ignores_running() {
+        let db = Db::in_memory().unwrap();
+        // a completed scan
+        scan_at(&db, 0, "vol-1", true);
+
+        // a newer scan that only got its first region and never finished
+        let sid = db
+            .begin_scan(5 * DAY, "acc", &["us-east-1".to_string(), "eu-west-1".to_string()])
+            .unwrap();
+        db.record_region(sid, 5 * DAY, "acc", "us-east-1", &[finding("vol-2", true)], &[])
+            .unwrap();
+
+        // latest skips the `running` row — returns the older completed one
+        let latest = db.latest_scan_result("acc").unwrap().unwrap();
+        assert_eq!(latest.status, ScanStatus::Ok);
+        assert_eq!(latest.detectors[0].items[0].resource_id, "vol-1");
+
+        // once finished, it becomes the latest
+        db.finish_scan(sid, ScanStatus::Cancelled, 5 * DAY).unwrap();
+        let latest = db.latest_scan_result("acc").unwrap().unwrap();
+        assert_eq!(latest.status, ScanStatus::Cancelled);
+        assert_eq!(latest.detectors[0].items[0].resource_id, "vol-2");
+        // the region that never ran left no observation — its streak (none) is untouched
+        assert_eq!(latest.detectors[0].items.len(), 1);
+    }
+
+    #[test]
     fn latest_is_scoped_to_the_account() {
         let db = Db::in_memory().unwrap();
         db.record_scan(
@@ -626,5 +696,24 @@ mod tests {
         assert_eq!(a.detectors[0].items[0].resource_id, "vol-a");
 
         assert!(db.latest_scan_result("acct-c").unwrap().is_none());
+    }
+
+    #[test]
+    fn a_scan_can_only_be_read_back_as_its_own_account() {
+        let db = Db::in_memory().unwrap();
+        let scan_id = db
+            .record_scan(
+                0,
+                0,
+                "acct-a",
+                &["us-east-1".to_string()],
+                ScanStatus::Ok,
+                &[],
+                &[],
+            )
+            .unwrap();
+        // Another account asking for acct-a's scan id gets an error, never acct-a's data.
+        assert!(db.build_scan_result(scan_id, "acct-b").is_err());
+        assert!(db.build_scan_result(scan_id, "acct-a").is_ok());
     }
 }

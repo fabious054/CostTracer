@@ -2,14 +2,14 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { FormsModule } from '@angular/forms';
 import { ConnectionStore } from '../../../core/connection/connection.store';
 import { I18nService } from '../../../core/i18n/i18n.service';
-import { RegionFieldComponent } from '../ui/region-field.component';
 import { WizardShellComponent } from '../ui/wizard-shell.component';
 
-/** Step `manualEntry`. Access Key ID + Secret + optional session token + optional default region. */
+/** Step `manualEntry`. Access Key ID + Secret + optional session token. The scan discovers the
+ *  account's regions itself (Scope 4), so there is no region field. */
 @Component({
   selector: 'ct-step-manual-entry',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [WizardShellComponent, FormsModule, RegionFieldComponent],
+  imports: [WizardShellComponent, FormsModule],
   template: `
     <ct-wizard-shell [title]="i18n.t('manual.title')" [subtitle]="i18n.t('manual.subtitle')">
       <form (ngSubmit)="submit()">
@@ -55,13 +55,6 @@ import { WizardShellComponent } from '../ui/wizard-shell.component';
           </span>
         </label>
 
-        <ct-region-field
-          [label]="i18n.t('region.label')"
-          [placeholder]="i18n.t('region.placeholder')"
-          [value]="region()"
-          (valueChange)="region.set($event)"
-        />
-
         <div class="ct-row">
           <button type="submit" class="ct-btn ct-btn--primary" [disabled]="!canSubmit()">
             {{ i18n.t('manual.validate') }}
@@ -102,7 +95,6 @@ export class ManualEntryComponent {
   protected readonly accessKeyId = signal('');
   protected readonly secretAccessKey = signal('');
   protected readonly sessionToken = signal('');
-  protected readonly region = signal('');
   protected readonly reveal = signal(false);
 
   /** `ASIA` prefix ⇒ temporary credential ⇒ a session token is mandatory. */
@@ -122,7 +114,6 @@ export class ManualEntryComponent {
       accessKeyId: this.accessKeyId().trim(),
       secretAccessKey: this.secretAccessKey().trim(),
       sessionToken: this.sessionToken().trim() || null,
-      region: this.region().trim() || null,
     });
   }
 }

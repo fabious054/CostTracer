@@ -31,6 +31,7 @@ const account: AccountInfo = {
   arn: identity.arn,
   userId: identity.userId,
   regions: ['us-east-1'],
+  regionsDiscovered: true,
   sourceKind: 'manual',
 };
 const emptyDetected: DetectedConfig = {

@@ -2,8 +2,11 @@
 //! The webview never receives a secret — raw keys and SSO tokens stay in `OnboardingSession`
 //! until `connection_finalize` moves them into the OS vault.
 
+use std::sync::Mutex;
+
 use aws_credential_types::provider::ProvideCredentials;
 use tauri::State;
+use tokio_util::sync::CancellationToken;
 
 use crate::aws;
 use crate::aws::sso::PollResult;
@@ -40,7 +43,13 @@ pub async fn session_resume() -> AppResult<ResumeOutcome> {
 
     match aws::identity::validate(&config).await {
         ValidationOutcome::Ok { identity } => Ok(ResumeOutcome::Ok {
-            account: account_info(identity, &stored.regions, &stored.region, stored.source_kind),
+            account: account_info(
+                identity,
+                &stored.regions,
+                &stored.region,
+                stored.source_kind,
+                stored.regions_discovered,
+            ),
         }),
         _ => Ok(ResumeOutcome::Stale),
     }
@@ -72,7 +81,9 @@ pub async fn credential_submit_manual(
     input: ManualCredentialInput,
     session: State<'_, OnboardingSession>,
 ) -> AppResult<ValidationOutcome> {
-    let region = aws::config::resolve_region(input.region.as_deref());
+    // No region field any more — the scan discovers the account's regions itself (Scope 4).
+    // A home region is still needed for the STS / EC2 validation probe.
+    let region = aws::config::resolve_region(None);
     let session_token = input.session_token.filter(|t| !t.trim().is_empty());
     let config = aws::config::from_static_keys(
         input.access_key_id.trim(),
@@ -81,10 +92,9 @@ pub async fn credential_submit_manual(
         &region,
     )
     .await;
-    let regions = aws::config::collect_regions(input.region.as_deref(), None);
 
     let outcome = aws::identity::validate(&config).await;
-    store_pending(&session, config, CredentialSourceKind::Manual, regions, &outcome).await;
+    store_pending(&session, config, CredentialSourceKind::Manual, Vec::new(), &outcome).await;
     Ok(outcome)
 }
 
@@ -94,18 +104,12 @@ pub async fn credential_use_detected(
     session: State<'_, OnboardingSession>,
 ) -> AppResult<ValidationOutcome> {
     let detected = aws::local_config::detect();
-    let region = aws::config::resolve_region(
-        input
-            .region
-            .as_deref()
-            .or(detected.default_region.as_deref()),
-    );
+    // Home region for the validation probe only — the scan discovers the account's regions.
+    let region = aws::config::resolve_region(detected.default_region.as_deref());
     let config = aws::config::from_profile(input.profile.as_deref(), &region).await;
-    let regions =
-        aws::config::collect_regions(input.region.as_deref(), detected.default_region.as_deref());
 
     let outcome = aws::identity::validate(&config).await;
-    store_pending(&session, config, CredentialSourceKind::Detected, regions, &outcome).await;
+    store_pending(&session, config, CredentialSourceKind::Detected, Vec::new(), &outcome).await;
     Ok(outcome)
 }
 
@@ -240,10 +244,9 @@ pub async fn sso_select_target(
         &region,
     )
     .await;
-    let regions = aws::config::collect_regions(Some(&region), None);
 
     let outcome = aws::identity::validate(&config).await;
-    store_pending(&session, config, CredentialSourceKind::Sso, regions, &outcome).await;
+    store_pending(&session, config, CredentialSourceKind::Sso, Vec::new(), &outcome).await;
     Ok(outcome)
 }
 
@@ -302,12 +305,24 @@ pub async fn connection_finalize(
         .map_err(|e| AppError::msg(format!("Could not resolve credentials for storage: {e}")))?;
 
     let region = aws::config::region_of(&config);
+
+    // Discover the account's enabled regions now, so the connected view can show them straight
+    // away (ADR 0004 D4). Non-blocking: if the call fails (e.g. `ec2:DescribeRegions` not yet
+    // granted), fall back to a single region but mark it undiscovered — the UI must not show that
+    // count as a fact, and the first scan re-runs discovery to surface the missing permission.
+    let (regions, regions_discovered) = match aws::regions::enabled_regions(&config).await {
+        Ok(discovered) => (discovered, true),
+        Err(_) if !regions.is_empty() => (regions, false),
+        Err(_) => (vec![region.clone()], false),
+    };
+
     let stored = StoredCredential {
         access_key_id: creds.access_key_id().to_string(),
         secret_access_key: creds.secret_access_key().to_string(),
         session_token: creds.session_token().map(str::to_string),
         region: region.clone(),
         regions: regions.clone(),
+        regions_discovered,
         source_kind: source,
         account_id: identity.account_id.clone(),
         user_id: identity.user_id.clone(),
@@ -317,7 +332,7 @@ pub async fn connection_finalize(
     vault::save(&stored)?;
 
     session.inner.lock().await.clear();
-    Ok(account_info(identity, &regions, &region, source))
+    Ok(account_info(identity, &regions, &region, source, regions_discovered))
 }
 
 #[tauri::command]
@@ -333,11 +348,38 @@ pub async fn session_discard(session: State<'_, OnboardingSession>) -> AppResult
     Ok(())
 }
 
-// --- Scope 2: idle-resource scan --------------------------------------------
+// --- Scope 2 + 4: idle-resource scan --------------------------------------------
+
+/// Holds the current scan's cancellation token in Tauri managed state (ADR 0004 D1). Each
+/// `scan_run` installs a fresh one; `scan_cancel` trips whatever is installed.
+#[derive(Default)]
+pub struct ScanCancel(Mutex<CancellationToken>);
+
+impl ScanCancel {
+    fn fresh(&self) -> CancellationToken {
+        let mut guard = self.0.lock().expect("scan-cancel mutex poisoned");
+        *guard = CancellationToken::new();
+        guard.clone()
+    }
+    fn trip(&self) {
+        self.0.lock().expect("scan-cancel mutex poisoned").cancel();
+    }
+}
 
 #[tauri::command]
-pub async fn scan_run(db: State<'_, Db>) -> AppResult<ScanRunOutcome> {
-    crate::scan::run_scan(db.inner()).await
+pub async fn scan_run(
+    app: tauri::AppHandle,
+    db: State<'_, Db>,
+    cancel: State<'_, ScanCancel>,
+) -> AppResult<ScanRunOutcome> {
+    let token = cancel.fresh();
+    crate::scan::run_scan(&app, db.inner(), token).await
+}
+
+#[tauri::command]
+pub fn scan_cancel(cancel: State<'_, ScanCancel>) -> AppResult<()> {
+    cancel.trip();
+    Ok(())
 }
 
 #[tauri::command]
@@ -403,6 +445,7 @@ fn account_info(
     regions: &[String],
     region: &str,
     source: CredentialSourceKind,
+    regions_discovered: bool,
 ) -> AccountInfo {
     AccountInfo {
         account_id: identity.account_id,
@@ -413,6 +456,7 @@ fn account_info(
         } else {
             regions.to_vec()
         },
+        regions_discovered,
         source_kind: source,
     }
 }

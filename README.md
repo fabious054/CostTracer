@@ -4,13 +4,14 @@
 
 > Local-first AWS cost visibility tool. Tracks idle resources over time to confirm real waste — read-only, no credentials ever leave your machine.
 
-🚧 **Status:** **Phase 0 complete.** Three scopes are closed and tagged:
+🚧 **Status:** **Phase 0 complete; Phase 1 underway.** Four scopes are closed and tagged:
 
 - **`v0.1.0-scope1` — AWS connection flow.** Connect via auto-detected local AWS config, manual access-key entry, or IAM Identity Center (SSO) device authorization. Every identity is screened for over-broad permissions before use; credentials are stored in the OS-native vault, never in plain text.
 - **`v0.2.0-scope2` — Idle-resource detectors.** Unattached EBS volumes, idle Elastic IPs, and orphan snapshots, with a local scan history (SQLite) and a four-level confidence scale (Observed → Persisting → Probable → Confirmed) that rises the longer a resource stays idle across scans. Every flagged resource carries a plain-language explanation; any resource can be marked *intentional* — a local-only flag, the tool never writes to AWS.
 - **`v0.3.0-scope3` — Estimated cost.** Every flagged resource shows an estimated monthly cost from a fixed local price table (nine regions), rolled up per detector and per account. Primary in USD; in Portuguese an approximate BRL follows at a fixed rate. Resources in a region the table doesn't cover are counted separately, never approximated. No AWS Price List API call.
+- **`v0.4.0-scope4` — Multi-region coverage** *(first scope of Phase 1)*. A scan discovers the account's enabled regions itself (`ec2:DescribeRegions`) and checks every one — no manual region choice. It runs region by region, showing results as each finishes and letting you cancel mid-run; regions already done stay saved. When the connected credential can't list regions, the tool says so plainly and doesn't guess a count or run a pointless scan.
 
-These tags mark closed scopes, not packaged downloads — there is no installer yet. Run from source: `npm install`, then `npm run tauri:dev`. Phase 1 is next (see Roadmap).
+These tags mark closed scopes, not packaged downloads — there is no installer yet. Run from source: `npm install`, then `npm run tauri:dev`. Phase 1 continues (see Roadmap).
 
 ---
 
@@ -30,7 +31,7 @@ CostTracer is a desktop application that audits your AWS account for idle and wa
 2. **History** — persists what was observed over time, turning a one-off "suspicion" into a confirmed pattern.
 3. **Confidence** — surfaces how certain the tool is that something is waste, based on accumulated history, in plain language the user can trust.
 
-Most tools in this space only do #1. CostTracer is designed around all three from the start — as of the current build, all three are in place: the collector (three detectors), the history (a local SQLite log of every observation), and the confidence layer (a four-level scale computed from that history).
+Most tools in this space only do #1. CostTracer is designed around all three from the start — as of the current build, all three are in place: the collector (three detectors, run across every enabled region), the history (a local SQLite log of every observation), and the confidence layer (a four-level scale computed from that history).
 
 ## Why local-first
 
@@ -51,7 +52,8 @@ Most tools in this space only do #1. CostTracer is designed around all three fro
   - ✅ AWS connection flow + permission audit + native vault — `v0.1.0-scope1`
   - ✅ Idle-resource detectors (EBS, Elastic IP, snapshot) + scan history + four-level confidence scale — `v0.2.0-scope2`
   - ✅ Estimated monthly cost per flagged resource, per detector, and per account (fixed local price table, USD with a pt-only approximate BRL) — `v0.3.0-scope3`
-- **Phase 1 — Reliability & coverage** *(next)*: more resource types, multi-region support, exception/allowlist system (e.g. tag-based exclusions) to reduce false positives.
+- **Phase 1 — Reliability & coverage** *(in progress)*: more resource types, multi-region support, exception/allowlist system (e.g. tag-based exclusions) to reduce false positives.
+  - ✅ Multi-region coverage — auto-discovered regions, progressive region-by-region scan, cancellable — `v0.4.0-scope4`
 - **Phase 2 — Assisted action**: opt-in dry-run simulation and, eventually, guarded execution — starting only with the resource types the confidence layer trusts most.
 - **Phase 3 — Multi-account**: relevant for organizations using AWS Organizations; not a near-term priority.
 

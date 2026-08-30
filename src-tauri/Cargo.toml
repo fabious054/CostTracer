@@ -1,6 +1,6 @@
 [package]
 name = "cost-tracer"
-version = "0.3.0"
+version = "0.4.0"
 description = "Local-first AWS cost visibility tool"
 authors = ["CostTracer contributors"]
 edition = "2021"
@@ -23,6 +23,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+# CancellationToken for the multi-region scan loop (ADR 0004 D1).
+tokio-util = { version = "0.7", default-features = false }
 dirs = "5"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 # Scope 2 scan-history store (ADR 0002). `bundled` = SQLite compiled from source, no system dep.

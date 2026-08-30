@@ -36,6 +36,10 @@ pub struct AccountInfo {
     pub arn: String,
     pub user_id: String,
     pub regions: Vec<String>,
+    /// `false` when `ec2:DescribeRegions` failed at connect time and `regions` is only the
+    /// single-region safety fallback — the UI must not present that count as a fact about the
+    /// account. A scan re-runs discovery and surfaces the real error.
+    pub regions_discovered: bool,
     pub source_kind: CredentialSourceKind,
 }
 
@@ -135,14 +139,12 @@ pub struct ManualCredentialInput {
     pub secret_access_key: String,
     /// Required for temporary credentials (Access Key ID starting with `ASIA`).
     pub session_token: Option<String>,
-    pub region: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UseDetectedInput {
     pub profile: Option<String>,
-    pub region: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -170,11 +172,20 @@ pub struct StoredCredential {
     pub session_token: Option<String>,
     pub region: String,
     pub regions: Vec<String>,
+    /// See `AccountInfo::regions_discovered`. `default = true`: a blob written before this field
+    /// existed had a real region list from a successful discovery in the overwhelming majority of
+    /// cases — don't raise a false alarm on upgrade; a reconnect refreshes it either way.
+    #[serde(default = "default_true")]
+    pub regions_discovered: bool,
     pub source_kind: CredentialSourceKind,
     pub account_id: String,
     pub user_id: String,
     pub arn: String,
     pub saved_at_unix: u64,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 // === Scope 2 — idle-resource scan ==========================================
@@ -249,8 +260,33 @@ impl DetectorKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ScanStatus {
+    /// A scan row exists but no final status yet — a scan in progress, or one whose process died.
+    Running,
+    /// Every attempted region finished with no detector errors.
     Ok,
+    /// At least one detector errored in at least one region.
     Partial,
+    /// The user cancelled — some regions were simply not attempted (ADR 0004 D3).
+    Cancelled,
+}
+
+impl ScanStatus {
+    pub fn as_db(self) -> &'static str {
+        match self {
+            ScanStatus::Running => "running",
+            ScanStatus::Ok => "ok",
+            ScanStatus::Partial => "partial",
+            ScanStatus::Cancelled => "cancelled",
+        }
+    }
+    pub fn from_db(s: &str) -> Self {
+        match s {
+            "running" => ScanStatus::Running,
+            "partial" => ScanStatus::Partial,
+            "cancelled" => ScanStatus::Cancelled,
+            _ => ScanStatus::Ok,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -297,7 +333,7 @@ impl ConfidenceLevel {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfidenceInfo {
     pub level: ConfidenceLevel,
@@ -305,7 +341,7 @@ pub struct ConfidenceInfo {
     pub scale: ConfidenceScale,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RegionError {
     pub region: String,
@@ -376,7 +412,7 @@ pub struct AccountCostRollup {
     pub unpriced_count: u32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceItem {
     pub resource_type: ResourceType,
@@ -398,7 +434,7 @@ pub struct ResourceItem {
     pub facts: serde_json::Value,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DetectorResult {
     pub kind: DetectorKind,
@@ -407,7 +443,7 @@ pub struct DetectorResult {
     pub cost_rollup: DetectorCostRollup,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanResult {
     pub scan_id: i64,
@@ -426,8 +462,41 @@ pub struct ScanResult {
 #[serde(tag = "status", rename_all = "camelCase")]
 pub enum ScanRunOutcome {
     Ok { result: ScanResult },
+    /// The user cancelled — `result` reflects the regions that did finish (ADR 0004 D3).
+    Cancelled { result: ScanResult },
     /// The stored credential no longer validates — the webview must send the user back to onboarding.
     ReauthRequired,
+}
+
+// --- Scope 4 — progressive multi-region scan events (ADR 0004 D6) -----------
+// Emitted on the Tauri event bus as the scan runs; mirrored in `core/models/scan.ts`.
+
+/// `scan://started` — fired once, before any region runs.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanStartedEvent {
+    pub scan_id: i64,
+    pub regions: Vec<String>,
+}
+
+/// `scan://region` — fired as each region finishes and is persisted. `result` is the full
+/// accumulating `ScanResult` so far, so the webview just replaces what it holds.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanRegionEvent {
+    pub scan_id: i64,
+    pub region: String,
+    /// `Ok` = every detector ran; `Partial` = a detector errored in this region.
+    pub region_status: ScanStatus,
+    pub result: ScanResult,
+}
+
+/// `scan://done` — terminal. `status` is the whole scan's outcome.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanDoneEvent {
+    pub scan_id: i64,
+    pub status: ScanStatus,
 }
 
 #[derive(Debug, Deserialize)]
