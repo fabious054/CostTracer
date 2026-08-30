@@ -36,6 +36,20 @@ function collapsedKey(kind: DetectorKind): string {
 function groupKey(kind: DetectorKind, group: string): string {
   return `ct.scan.group.${kind}.${group}`;
 }
+/**
+ * Collapse near-identical region-error messages to one key so a systemic failure (a service off,
+ * a permission missing account-wide) shows as one grouped block instead of N identical boxes.
+ * Strips the parts that legitimately vary per region — the region code and any request-id/UUID.
+ */
+export function errKey(message: string): string {
+  return message
+    .toLowerCase()
+    .replace(/\b[a-z]{2}-[a-z]+-\d{1,2}\b/g, '')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f-]{20,}\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function readFlag(key: string, fallback: boolean): boolean {
   try {
     const v = localStorage.getItem(key);
@@ -120,10 +134,33 @@ function writeFlag(key: string, on: boolean): void {
 
         @if (!collapsed()) {
           <div class="body">
-            @for (err of d.regionErrors; track err.region) {
-              <p class="ct-alert ct-alert--warning region-err">
-                {{ i18n.t('scan.regionError', { region: err.region, message: err.message }) }}
-              </p>
+            @for (g of regionErrorGroups(); track g.message) {
+              @if (g.regions.length === 1) {
+                <p class="ct-alert ct-alert--warning region-err">
+                  {{ i18n.t('scan.regionError', { region: g.regions[0], message: g.message }) }}
+                </p>
+              } @else {
+                <div class="ct-alert ct-alert--warning region-err region-err-group">
+                  <button
+                    type="button"
+                    class="region-err-toggle"
+                    [attr.aria-expanded]="errOpen(g.message)"
+                    (click)="toggleErr(g.message)"
+                  >
+                    <span class="caret sm" [class.open]="errOpen(g.message)" aria-hidden="true">
+                      <svg viewBox="0 0 12 12"><path d="M4.5 3 L8 6 L4.5 9" /></svg>
+                    </span>
+                    {{ i18n.t('scan.regionErrors.grouped', { n: g.regions.length, message: g.message }) }}
+                  </button>
+                  @if (errOpen(g.message)) {
+                    <p class="region-err-list">
+                      @for (r of g.regions; track r) {
+                        <span class="rchip">{{ r }}</span>
+                      }
+                    </p>
+                  }
+                </div>
+              }
             }
 
             @if (d.items.length === 0) {
@@ -309,6 +346,40 @@ function writeFlag(key: string, on: boolean): void {
       .region-err {
         margin: 8px 0 0;
       }
+      .region-err-group {
+        padding: 0;
+      }
+      .region-err-toggle {
+        width: 100%;
+        display: flex;
+        align-items: flex-start;
+        gap: 6px;
+        padding: 8px 10px;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+      .region-err-toggle .caret {
+        margin-top: 2px;
+      }
+      .region-err-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin: 0;
+        padding: 0 10px 9px 24px;
+      }
+      .rchip {
+        padding: 1px 6px;
+        border-radius: 999px;
+        font-size: 10px;
+        font-variant-numeric: tabular-nums;
+        background: var(--ct-panel);
+        color: var(--ct-text-dim);
+      }
       .empty {
         margin: 4px 0 8px;
         font-size: 12px;
@@ -384,6 +455,8 @@ export class DetectorSectionComponent implements OnInit {
   readonly detector = input.required<DetectorResult>();
 
   protected readonly collapsed = signal(false);
+  /** open/closed per grouped region-error message (transient — no persistence) */
+  private readonly errOpenMap = signal<Record<string, boolean>>({});
   /** open/closed per group key; seeded in ngOnInit */
   private readonly groupOpen = signal<Record<string, boolean>>({});
   /** how many rows are revealed per group key (default PAGE) */
@@ -392,6 +465,27 @@ export class DetectorSectionComponent implements OnInit {
   protected readonly alertingCount = computed(
     () => this.detector().items.filter((i) => i.state === 'alert' && !i.intentional).length,
   );
+
+  /** Region errors folded by message — one line for a lone region, one collapsed block for many. */
+  protected readonly regionErrorGroups = computed<{ message: string; regions: string[] }[]>(() => {
+    const byKey = new Map<string, { message: string; regions: string[] }>();
+    for (const e of this.detector().regionErrors) {
+      const g = byKey.get(errKey(e.message));
+      if (g) g.regions.push(e.region);
+      else byKey.set(errKey(e.message), { message: e.message, regions: [e.region] });
+    }
+    return [...byKey.values()]
+      .map((g) => ({ message: g.message, regions: [...g.regions].sort() }))
+      .sort((a, b) => b.regions.length - a.regions.length);
+  });
+
+  protected errOpen(key: string): boolean {
+    return this.errOpenMap()[key] ?? false;
+  }
+
+  protected toggleErr(key: string): void {
+    this.errOpenMap.update((m) => ({ ...m, [key]: !(m[key] ?? false) }));
+  }
 
   protected readonly costSummary = computed<
     { amount: string | null; count: string | null; unpriced: number } | null
