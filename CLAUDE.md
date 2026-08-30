@@ -141,6 +141,13 @@ Antes de considerar um escopo formalmente fechado (commit + tag), sempre nessa o
 1. Checklist de validação manual do relatório de fechamento com os itens bloqueantes confirmados
    (pendências não-bloqueantes registradas, não escondidas).
 2. Qualquer afordância de dev temporária removida (checklist própria, com `grep` de confirmação).
+   **Exceção: `dev_seed_scan` (o "seed demo").** Diferente de afordâncias de teste pontuais (ex.:
+   `dev_force_reauth`), esta é mantida permanentemente no código como ferramenta de
+   desenvolvimento — útil para validar qualquer escopo futuro visualmente sem precisar de conta
+   AWS real nem gastar dinheiro. Continua sob o mesmo duplo gate
+   (`#[cfg(debug_assertions)]` + `isDevMode()`), marcada `DEV-ONLY`, e **nunca aparece em build de
+   produção**. Não faz parte da checklist de remoção. Se um dia isso mudar de ideia (ex.: virar
+   feature pública de demonstração), isso exige nova decisão de produto, não é automático.
 3. `docs/iam-policy-minimal.json` revisado — nenhuma permissão nova sem uso real, nenhuma faltando.
 4. **`README.md`, `README.pt-BR.md` e `docs/development.md` atualizados** — Status, Roadmap (fase
    atual e o que já saiu dela), a seção "Layout" de `development.md` (estrutura de pastas real,

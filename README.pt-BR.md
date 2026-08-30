@@ -4,12 +4,13 @@
 
 > Ferramenta local-first de visibilidade de custos AWS. Rastreia recursos ociosos ao longo do tempo para confirmar desperdício real — somente leitura, nenhuma credencial sai da sua máquina.
 
-🚧 **Status:** Em desenvolvimento ativo — **Fase 0**. Dois escopos estão fechados e com tag:
+🚧 **Status:** **Fase 0 concluída.** Três escopos estão fechados e com tag:
 
 - **`v0.1.0-scope1` — Fluxo de conexão com a AWS.** Conexão via configuração AWS local detectada automaticamente, entrada manual de access key, ou autorização por dispositivo do IAM Identity Center (SSO). Toda identidade é verificada quanto a permissões excessivas antes do uso; credenciais ficam no cofre nativo do sistema, nunca em texto plano.
 - **`v0.2.0-scope2` — Detectores de recursos ociosos.** Volumes EBS não anexados, Elastic IPs ociosos e snapshots órfãos, com histórico local de scans (SQLite) e uma escala de confiança de quatro níveis (Observado → Persistindo → Provável → Confirmado) que sobe quanto mais tempo um recurso permanece ocioso ao longo dos scans. Todo recurso sinalizado traz uma explicação em linguagem clara; qualquer recurso pode ser marcado como *intencional* — um marcador puramente local, a ferramenta nunca escreve na AWS.
+- **`v0.3.0-scope3` — Custo estimado.** Todo recurso sinalizado mostra um custo mensal estimado a partir de uma tabela de preços fixa e local (nove regiões), somado por detector e por conta. Primário em USD; em português segue um BRL aproximado por taxa fixa. Recursos numa região que a tabela não cobre são contabilizados à parte, nunca aproximados. Sem chamada à AWS Price List API.
 
-Essas tags marcam escopos fechados, não downloads empacotados — ainda não há instalador. Rode a partir do código: `npm install` e depois `npm run tauri:dev`. A estimativa de custo e o restante da Fase 0 continuam em aberto (ver Roadmap).
+Essas tags marcam escopos fechados, não downloads empacotados — ainda não há instalador. Rode a partir do código: `npm install` e depois `npm run tauri:dev`. A Fase 1 é a próxima (ver Roadmap).
 
 ---
 
@@ -21,7 +22,7 @@ A maioria das ferramentas existentes exige colar credenciais AWS numa plataforma
 
 ## A Solução
 
-O CostTracer é uma aplicação desktop que audita sua conta AWS em busca de recursos ociosos e desperdício, rodando **100% localmente** na sua máquina. Ele inspeciona sua conta, sinaliza possíveis desperdícios e — o mais importante — **confirma esse desperdício ao longo do tempo** antes de você agir sobre ele. Estimar o custo acumulado de cada achado é a próxima peça da Fase 0. Nenhuma credencial, dado de conta ou telemetria sai do seu computador.
+O CostTracer é uma aplicação desktop que audita sua conta AWS em busca de recursos ociosos e desperdício, rodando **100% localmente** na sua máquina. Ele inspeciona sua conta, sinaliza possíveis desperdícios, **estima o custo mensal** a partir de uma tabela de preços fixa e local e — o mais importante — **confirma esse desperdício ao longo do tempo** antes de você agir sobre ele. Nenhuma credencial, dado de conta ou telemetria sai do seu computador.
 
 ### Os três pilares
 
@@ -46,11 +47,11 @@ A maioria das ferramentas do mercado cobre só o item 1. O CostTracer é desenha
 
 ## Roadmap
 
-- **Fase 0 — Visibilidade honesta** *(atual)*: scan somente leitura, custo estimado e confirmação temporal (um recurso precisa permanecer ocioso em múltiplos scans antes de contar como desperdício confirmado). Sem ações de escrita.
+- **Fase 0 — Visibilidade honesta** *(concluída)*: scan somente leitura, custo estimado e confirmação temporal (um recurso precisa permanecer ocioso em múltiplos scans antes de contar como desperdício confirmado). Sem ações de escrita.
   - ✅ Fluxo de conexão com a AWS + auditoria de permissões + cofre nativo — `v0.1.0-scope1`
   - ✅ Detectores de recursos ociosos (EBS, Elastic IP, snapshot) + histórico de scans + escala de confiança de quatro níveis — `v0.2.0-scope2`
-  - ☐ Custo estimado por recurso sinalizado e total acumulado
-- **Fase 1 — Confiabilidade e abrangência**: mais tipos de recurso, suporte multi-região, sistema de exceções/allowlist (ex: exclusões baseadas em tag) para reduzir falsos positivos.
+  - ✅ Custo mensal estimado por recurso sinalizado, por detector e por conta (tabela de preços fixa e local, USD com BRL aproximado só em pt) — `v0.3.0-scope3`
+- **Fase 1 — Confiabilidade e abrangência** *(próxima)*: mais tipos de recurso, suporte multi-região, sistema de exceções/allowlist (ex: exclusões baseadas em tag) para reduzir falsos positivos.
 - **Fase 2 — Ação assistida**: simulação dry-run opcional e, eventualmente, execução controlada — começando apenas pelos tipos de recurso em que a camada de confiança mais confia.
 - **Fase 3 — Multi-conta**: relevante para organizações que usam AWS Organizations; não é prioridade no curto prazo.
 

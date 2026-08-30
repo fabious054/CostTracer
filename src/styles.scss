@@ -76,7 +76,36 @@
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; height: 100%; }
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  /* Kill Chromium/WebView2 automatic font boosting — it inflates multi-line text in narrow
+     columns, which made the same label look larger in pt (longer strings wrap more). */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* custom hover/focus hint box — see shared/tooltip.directive.ts */
+.ct-tooltip {
+  position: fixed;
+  z-index: 9999;
+  max-width: 260px;
+  padding: 7px 9px;
+  border-radius: var(--ct-radius);
+  background: var(--ct-panel);
+  border: 1px solid var(--ct-border-line);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.22);
+  color: var(--ct-text);
+  font-size: 11px;
+  line-height: 1.4;
+  pointer-events: none;
+  animation: ct-tooltip-in 0.09s ease-out;
+}
+@keyframes ct-tooltip-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: none; }
+}
 
 /* theme-aware scrollbars (default is a light OS bar that clashes on dark) */
 * {

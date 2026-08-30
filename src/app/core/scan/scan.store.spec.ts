@@ -35,9 +35,17 @@ function alertingVolume(): ResourceItem {
     createdAt: 1000,
     monitoredSince: 1000,
     confidence: { level: 'probable', daysCoverage: 6, scale: 'standard' },
+    estimatedCost: {
+      monthlyUsd: 8,
+      basis: 'ebs-gib',
+      qualifiers: [],
+      unavailable: null,
+    },
     facts: { sizeGiB: 100 },
   };
 }
+
+const noRollup = { monthlyUsd: 0, pricedCount: 0, unpricedCount: 0 };
 
 function result(items: ResourceItem[]): ScanResult {
   return {
@@ -48,10 +56,12 @@ function result(items: ResourceItem[]): ScanResult {
     regions: ['us-east-1'],
     status: 'ok',
     detectors: [
-      { kind: 'ebs-unattached', regionErrors: [], items },
-      { kind: 'elastic-ip-idle', regionErrors: [], items: [] },
-      { kind: 'orphan-snapshot', regionErrors: [], items: [] },
+      { kind: 'ebs-unattached', regionErrors: [], items, costRollup: { ...noRollup } },
+      { kind: 'elastic-ip-idle', regionErrors: [], items: [], costRollup: { ...noRollup } },
+      { kind: 'orphan-snapshot', regionErrors: [], items: [], costRollup: { ...noRollup } },
     ],
+    costRollup: { primaryMonthlyUsd: 0, contextMonthlyUsd: 0, unpricedCount: 0 },
+    fxUsdBrl: 5.4,
   };
 }
 

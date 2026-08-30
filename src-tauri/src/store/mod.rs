@@ -3,6 +3,10 @@
 
 mod migrations;
 
+// DEV-ONLY — realistic fixture for reviewing the Scope 3 cost UI. Remove at Scope 3 closure.
+#[cfg(debug_assertions)]
+mod demo_seed;
+
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
@@ -13,8 +17,9 @@ use serde_json::Value;
 use crate::detectors::RawFinding;
 use crate::error::{AppError, AppResult};
 use crate::model::{
-    ConfidenceInfo, ConfidenceLevel, DetectorKind, DetectorResult, RegionError, ResourceItem,
-    ResourceRef, ResourceState, ResourceType, ScanResult, ScanStatus,
+    AccountCostRollup, ConfidenceInfo, ConfidenceLevel, DetectorCostRollup, DetectorKind,
+    DetectorResult, RegionError, ResourceItem, ResourceRef, ResourceState, ResourceType,
+    ScanResult, ScanStatus,
 };
 use crate::util::now_unix_secs;
 
@@ -160,6 +165,15 @@ impl Db {
         scan_result_from_conn(&conn, scan_id, account_id)
     }
 
+    /// DEV-ONLY (`#[cfg(debug_assertions)]`). Replace this account's history with a realistic
+    /// fixture so the cost UI can be reviewed with representative data. Remove at Scope 3 closure.
+    #[cfg(debug_assertions)]
+    pub fn seed_demo(&self, account_id: &str) -> AppResult<ScanResult> {
+        let conn = self.lock();
+        let scan_id = demo_seed::seed(&conn, account_id)?;
+        scan_result_from_conn(&conn, scan_id, account_id)
+    }
+
     /// Most recent scan **for this account** — never another account's stale result.
     pub fn latest_scan_result(&self, account_id: &str) -> AppResult<Option<ScanResult>> {
         let conn = self.lock();
@@ -248,6 +262,11 @@ impl RawItemRow {
             _ => None,
         };
 
+        // Cost is shown on the same rows as the mandatory explanation — alerting, non-intentional.
+        let estimated_cost = confidence
+            .as_ref()
+            .map(|_| crate::pricing::estimate(resource_type, &self.region, &facts));
+
         Ok(ResourceItem {
             resource_type,
             resource_id: self.resource_id,
@@ -259,6 +278,7 @@ impl RawItemRow {
             created_at: self.created_at,
             monitored_since: self.first_seen_at,
             confidence,
+            estimated_cost,
             facts,
         })
     }
@@ -343,14 +363,27 @@ fn scan_result_from_conn(
         }
     }
 
-    let detectors = DETECTORS
+    let detectors: Vec<DetectorResult> = DETECTORS
         .into_iter()
-        .map(|kind| DetectorResult {
-            kind,
-            region_errors: errors.remove(&kind).unwrap_or_default(),
-            items: by_type.remove(&kind.resource_type()).unwrap_or_default(),
+        .map(|kind| {
+            let items = by_type.remove(&kind.resource_type()).unwrap_or_default();
+            let cost_rollup = detector_rollup(&items);
+            DetectorResult {
+                kind,
+                region_errors: errors.remove(&kind).unwrap_or_default(),
+                items,
+                cost_rollup,
+            }
         })
         .collect();
+
+    let cost_rollup = account_rollup(&detectors);
+    if cost_rollup.unpriced_count > 0 {
+        eprintln!(
+            "[pricing] {} flagged resource(s) had no price for their region (scan {scan_id})",
+            cost_rollup.unpriced_count
+        );
+    }
 
     Ok(ScanResult {
         scan_id,
@@ -360,7 +393,50 @@ fn scan_result_from_conn(
         regions,
         status,
         detectors,
+        cost_rollup,
+        fx_usd_brl: crate::pricing::fx_usd_brl(),
     })
+}
+
+/// Per-detector total over its alerting, non-intentional resources (those carry `estimated_cost`).
+fn detector_rollup(items: &[ResourceItem]) -> DetectorCostRollup {
+    let mut r = DetectorCostRollup::default();
+    for it in items {
+        let Some(ec) = &it.estimated_cost else { continue };
+        match ec.monthly_usd {
+            Some(usd) => {
+                r.monthly_usd += usd;
+                r.priced_count += 1;
+            }
+            None => r.unpriced_count += 1,
+        }
+    }
+    r
+}
+
+/// Account total, split: Probable+Confirmed as the primary figure, Observed+Persisting as context.
+fn account_rollup(detectors: &[DetectorResult]) -> AccountCostRollup {
+    let mut a = AccountCostRollup::default();
+    for d in detectors {
+        for it in &d.items {
+            let (Some(ec), Some(level)) = (&it.estimated_cost, it.confidence.as_ref().map(|c| c.level))
+            else {
+                continue;
+            };
+            match ec.monthly_usd {
+                Some(usd) => match level {
+                    ConfidenceLevel::Probable | ConfidenceLevel::Confirmed => {
+                        a.primary_monthly_usd += usd
+                    }
+                    ConfidenceLevel::Observed | ConfidenceLevel::Persisting => {
+                        a.context_monthly_usd += usd
+                    }
+                },
+                None => a.unpriced_count += 1,
+            }
+        }
+    }
+    a
 }
 
 /// Default order: active alerts first (widest coverage first), then intentional, then neutral.
@@ -474,6 +550,34 @@ mod tests {
         assert_eq!(items.len(), 1);
         assert!(items[0].intentional);
         assert!(items[0].confidence.is_none());
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn demo_seed_produces_a_populated_cost_result() {
+        let db = Db::in_memory().unwrap();
+        let r = db.seed_demo("demoacct").unwrap();
+
+        assert!(r.cost_rollup.primary_monthly_usd > 0.0, "Probable+Confirmed should total > 0");
+        assert!(r.cost_rollup.context_monthly_usd > 0.0, "Observed+Persisting should total > 0");
+        assert!(r.cost_rollup.unpriced_count >= 2, "ap-south-1 + ca-central-1 are not in the table");
+        for d in &r.detectors {
+            assert!(!d.items.is_empty(), "{:?} should have items", d.kind);
+        }
+        let items: Vec<&ResourceItem> = r.detectors.iter().flat_map(|d| &d.items).collect();
+        assert!(items.iter().any(|i| i.intentional));
+        assert!(items.iter().any(|i| i.state == ResourceState::Neutral));
+        assert!(items.iter().any(|i| i
+            .estimated_cost
+            .as_ref()
+            .and_then(|e| e.monthly_usd)
+            .is_some()));
+
+        // re-seeding replaces, never duplicates.
+        let n1: usize = r.detectors.iter().map(|d| d.items.len()).sum();
+        let r2 = db.seed_demo("demoacct").unwrap();
+        let n2: usize = r2.detectors.iter().map(|d| d.items.len()).sum();
+        assert_eq!(n1, n2);
     }
 
     #[test]

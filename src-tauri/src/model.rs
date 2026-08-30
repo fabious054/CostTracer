@@ -312,6 +312,70 @@ pub struct RegionError {
     pub message: String,
 }
 
+// --- Scope 3 — estimated cost (ADR 0003) -----------------------------------
+// The core produces USD figures + the unpriced counts; the webview does the USD→BRL display
+// (fixed rate in `ScanResult.fx_usd_brl`), formatting, and the caveat copy.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CostBasis {
+    /// EBS volume: size (GiB) × $/GiB-month.
+    EbsGib,
+    /// Elastic IP: idle hourly rate × 730.
+    EipFlat,
+    /// EBS snapshot: source volume size (GiB) × $/GB-month.
+    SnapshotGib,
+}
+
+/// A machine-readable caveat on an estimate the webview renders as a short note.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CostQualifier {
+    /// io1/io2: provisioned IOPS (and gp3 throughput) are billed on top and not captured.
+    EbsIopsNotIncluded,
+    /// Snapshot priced on the full source volume size, not the incremental stored size.
+    SnapshotFullVolumeSize,
+    /// Unknown volume type — priced as gp3.
+    EbsTypeAssumed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CostUnavailable {
+    /// The resource's region is not in the fixed price table.
+    Region,
+    /// A fact needed for the estimate (e.g. size) was missing from the scan.
+    MissingFact,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EstimatedCost {
+    /// USD per month. `None` exactly when `unavailable` is set.
+    pub monthly_usd: Option<f64>,
+    pub basis: CostBasis,
+    pub qualifiers: Vec<CostQualifier>,
+    pub unavailable: Option<CostUnavailable>,
+}
+
+/// Per-detector total — over alerting, non-intentional resources only.
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectorCostRollup {
+    pub monthly_usd: f64,
+    pub priced_count: u32,
+    pub unpriced_count: u32,
+}
+
+/// Account total — two figures: Probable+Confirmed (primary) and Observed+Persisting (context).
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AccountCostRollup {
+    pub primary_monthly_usd: f64,
+    pub context_monthly_usd: f64,
+    pub unpriced_count: u32,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceItem {
@@ -329,6 +393,8 @@ pub struct ResourceItem {
     pub monitored_since: i64,
     /// Present only for alerting, non-intentional resources.
     pub confidence: Option<ConfidenceInfo>,
+    /// Present exactly when `confidence` is — same "alerting, non-intentional" gate.
+    pub estimated_cost: Option<EstimatedCost>,
     pub facts: serde_json::Value,
 }
 
@@ -338,6 +404,7 @@ pub struct DetectorResult {
     pub kind: DetectorKind,
     pub region_errors: Vec<RegionError>,
     pub items: Vec<ResourceItem>,
+    pub cost_rollup: DetectorCostRollup,
 }
 
 #[derive(Debug, Serialize)]
@@ -350,6 +417,9 @@ pub struct ScanResult {
     pub regions: Vec<String>,
     pub status: ScanStatus,
     pub detectors: Vec<DetectorResult>,
+    pub cost_rollup: AccountCostRollup,
+    /// Fixed USD→BRL rate from the price table (placeholder value; UI labels it approximate).
+    pub fx_usd_brl: f64,
 }
 
 #[derive(Debug, Serialize)]

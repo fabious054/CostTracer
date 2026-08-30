@@ -1,0 +1,23 @@
+# LocalStack — opt-in dev harness for the Scope 3 cost engine (ADR 0003, decision D4).
+# NOT part of the app, the production build, or `cargo test` / CI. It only exists to run the
+# detector -> store -> pricing pipeline against EC2 data that behaves like real AWS.
+#
+#   docker compose -f docker-compose.localstack.yml up -d
+#   bash scripts/localstack-seed.sh
+#   ( cd src-tauri && AWS_ENDPOINT_URL=http://localhost:4566 \
+#       cargo test --test localstack -- --ignored --nocapture )
+#   docker compose -f docker-compose.localstack.yml down
+
+services:
+  localstack:
+    image: localstack/localstack:3
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=ec2,sts
+      - DEBUG=0
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:4566/_localstack/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20

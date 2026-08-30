@@ -1,13 +1,17 @@
 mod aws;
 mod commands;
-mod detectors;
 mod error;
-mod model;
 mod scan;
 mod session;
-mod store;
 mod util;
 mod vault;
+
+// `pub` so the opt-in LocalStack harness (`tests/localstack.rs`, ADR 0003 D4) can drive the
+// detector → store → pricing pipeline directly. Not part of a stable public API.
+pub mod detectors;
+pub mod model;
+pub mod pricing;
+pub mod store;
 
 use tauri::Manager;
 
@@ -46,6 +50,9 @@ pub fn run() {
             commands::scan_latest,
             commands::resource_mark_intentional,
             commands::resource_unmark_intentional,
+            // DEV-ONLY — removed at Scope 3 closure.
+            #[cfg(debug_assertions)]
+            commands::dev_seed_scan,
         ])
         .run(tauri::generate_context!())
         .expect("error while running the CostTracer application");

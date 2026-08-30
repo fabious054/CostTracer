@@ -21,6 +21,7 @@ prerequisites above are for building only.
 | Frontend only, in a browser (no core) | `npm start` → http://localhost:4200 |
 | Frontend unit tests | `npm test` — or headless: `CHROME_BIN="<path>" npx ng test --watch=false --browsers=ChromeHeadless` |
 | Rust core check + tests | `cd src-tauri && cargo check && cargo test` |
+| Run against LocalStack (cost UI review) | `npm run tauri:dev:localstack` — see "LocalStack harness" below |
 | Production bundle | `npm run tauri:build` |
 | Regenerate app icons | `npx tauri icon src-tauri/icons/app-icon-source.png` |
 
@@ -44,7 +45,10 @@ src/                          Angular webview — no credential or AWS SDK code 
       saved-urls.ts               locally-remembered Start URLs (localStorage) — see Notes
     format/
       event-time.ts               shared date+time formatter for exact-event timestamps
+      cost.ts                      USD formatting + the pt-only approximate-BRL suffix (Scope 3)
     i18n/                         hand-rolled runtime i18n (messages.ts = en + pt, i18n.service.ts)
+  app/shared/
+    tooltip.directive.ts          [ctTooltip] — themed hover/focus hint box (replaces native title)
   app/features/
     onboarding/                   one component per step (see docs/scope-1-connection-flow.md)
     main/                         the post-connection screen: account bar + scan
@@ -64,33 +68,138 @@ src-tauri/src/
   detectors/                   idle-resource detectors: ebs, elastic_ip, snapshot (+ mod = run_region)
   scan.rs                      scan orchestrator: load credential → validate → run detectors per region → persist
   store/                       bundled SQLite (rusqlite): migrations + record_scan / build_scan_result / intentional flags
+  pricing/                     fixed price table (price-table.toml, embedded) + pure estimate() (Scope 3, ADR 0003)
   model.rs                     serde DTOs — source of truth for the frontend types
+  tests/localstack.rs          opt-in #[ignore] harness — detector→store→pricing against LocalStack (ADR 0003 D4)
 docs/
   scope-1-connection-flow.md   state & screen structure for the connection flow (read this first)
   scope-2-detectors.md         detectors, confidence scale, DB schema, commands, DTOs
   adr/0001-angular-state-management.md   hand-rolled signal store + pure reducer
   adr/0002-local-scan-persistence.md     SQLite engine, retention, streak semantics, kept the hand-rolled store
+  adr/0003-resource-cost-estimation.md   price-table format, cost math in the core, USD/BRL, LocalStack
   iam-policy-minimal.json      embedded into the binary via include_str!; served by policy_minimal_read
+docker-compose.localstack.yml  opt-in LocalStack container for the harness above (not the app, not CI)
+scripts/localstack-seed.sh     seeds the LocalStack fixture the harness expects
 ```
 
 ## Verification status
 
-Scopes 1 and 2 are closed and tagged (`v0.1.0-scope1`, `v0.2.0-scope2` on `main`). The app has run
-live against a real AWS account throughout both scopes; see `cost-tracer/scope-reports/` for the
-per-scope validation logs.
+Scopes 1–3 are closed and tagged (`v0.1.0-scope1`, `v0.2.0-scope2`, `v0.3.0-scope3` on `main`) —
+Phase 0 is complete. The app has run live against a real AWS account throughout; see
+`cost-tracer/scope-reports/` for the per-scope validation logs.
 
-- **Frontend**: `ng build` (dev + prod) clean; 39 unit tests pass (reducer + connection store +
-  scan store + i18n key-parity + saved-urls + event-time). Prod bundle ≈ 67 kB estimated transfer.
-- **Rust core**: `cargo check` clean, no warnings; `cargo test` 11/11 (confidence-scale cutoffs,
-  scan-store coverage/streak/scoping, vault chunk round-trip). Crate families: `aws-config` /
+- **Frontend**: `ng build` (dev + prod) clean; 44 unit tests pass (reducer + connection store +
+  scan store + i18n key-parity + saved-urls + event-time + cost formatting). Prod bundle ≈ 73 kB
+  estimated transfer.
+- **Rust core**: `cargo check` clean; `cargo test` 19/19 (confidence-scale cutoffs, scan-store
+  coverage/streak/scoping, vault chunk round-trip, price-table shape + `estimate()` per resource
+  type incl. the unpriced-region path, demo-seed fixture). One further test, `tests/localstack.rs`,
+  is `#[ignore]` —
+  the opt-in LocalStack harness (see below). Crate families: `aws-config` /
   `aws-sdk-{sts,iam,ec2,sso,ssooidc}` v1, `aws-credential-types` v1, `keyring` v3, `rusqlite` 0.32
-  (`bundled`), `tauri` v2, `tokio` v1 — exact resolved versions in `Cargo.toml` / `Cargo.lock`.
+  (`bundled`), `toml` 0.8, `tauri` v2, `tokio` v1 — exact resolved versions in `Cargo.toml` /
+  `Cargo.lock`.
 - **Not covered by automated tests**: real AWS SDK calls (manual validation only); rendering of the
   scan components (checked visually). The alert-path scan UI and the reauth-required flow were
   validated during Scope 2 via temporary `#[cfg(debug_assertions)]` dev affordances that were
   removed before the scope closed — a real scan that finds an idle resource, and the
   Observed→Confirmed progression over real days, remain unobserved (the owner won't create billable
   AWS resources just to test).
+
+## Estimated cost — the price table (Scope 3, ADR 0003)
+
+Prices come from **one fixed file**, `src-tauri/src/pricing/price-table.toml`, embedded in the
+binary with `include_str!`. No AWS Price List API call — real-time pricing is backlog. The engine
+(`pricing::estimate`) is a pure function of `(resource_type, region, facts)`; the cost figures and
+the "no price for this region" counts are computed in the core while the scan result is built
+(same place as the confidence level), and shipped in the DTO. The webview only formats them and,
+when the UI language is Portuguese, appends the approximate BRL conversion using the fixed
+`fx_usd_brl` rate from the same file.
+
+**Updating a price:**
+
+1. Open the source pages listed at the top of `price-table.toml` (EBS/snapshot: the EBS pricing
+   page; Elastic IP: the VPC pricing page), switch to the region, copy the number.
+2. Edit the file. Keep every region block complete — all seven EBS types keyed.
+3. Bump `captured` in `[meta]`.
+4. `cd src-tauri && cargo test pricing::` must stay green (it checks all 9 regions are present for
+   each resource kind and that no price is zero or negative).
+
+A region **not** in the file is reported as "price unavailable" and counted separately — never
+approximated. Add the region block to fix that. `[fx] usd_brl` is a **placeholder**, not a real
+quote; replace it before any release.
+
+Two estimates are deliberately imprecise and carry a visible caveat (ADR 0003 D5): `io1`/`io2`
+volumes are priced GiB-only (provisioned IOPS not captured by the scan), and snapshots are priced
+on the source volume size (an upper bound; real billing is on incremental size). Capturing
+provisioned IOPS is backlog.
+
+## LocalStack harness (opt-in)
+
+`tests/localstack.rs` drives the real detector → store → pricing pipeline against
+[LocalStack](https://localstack.cloud/) — EC2 data that behaves like AWS, no account, no cost. It
+is `#[ignore]` and **not** part of `cargo test` or CI; it needs Docker and a running container.
+
+```
+docker compose -f docker-compose.localstack.yml up -d
+bash scripts/localstack-seed.sh
+( cd src-tauri && AWS_ENDPOINT_URL=http://localhost:4566 \
+    cargo test --test localstack -- --ignored --nocapture )
+docker compose -f docker-compose.localstack.yml down
+```
+
+`AWS_ENDPOINT_URL` is read in `aws/config.rs` and applied to every SDK client; it is unset in
+production. The seed script (run via `awslocal` inside the container, so no host AWS CLI is needed)
+creates a known fixture: an unattached gp3 volume, an idle Elastic IP and an orphan snapshot in
+`sa-east-1` (all priced), plus one volume in `ca-central-1` (a region not in the table, to exercise
+the unpriced path). The test targets its seeded resources by `Name` tag — LocalStack/moto's
+`DescribeSnapshots` also returns a large canned catalogue of AMI-backing snapshots, so account-total
+assertions there are structural, not exact.
+
+### Running the app itself against LocalStack (on-screen review)
+
+The same `AWS_ENDPOINT_URL` override works for the whole running app, not just the test — connect
+and scan through the real UI against LocalStack, no account, no cost.
+
+```
+npm run tauri:dev:localstack
+```
+
+That one command (see `scripts/dev-localstack.mjs`) brings the container up, waits for it, seeds
+the fixture, and launches `tauri dev` with `AWS_ENDPOINT_URL` already set. The pieces are also
+available on their own: `npm run localstack:up` / `localstack:seed` / `localstack:down`, then
+`AWS_ENDPOINT_URL=http://localhost:4566 npm run tauri:dev` (Git Bash) or
+`$env:AWS_ENDPOINT_URL = "http://localhost:4566"; npm run tauri:dev` (PowerShell).
+
+Then in the app: **Manual Access Key** → `test` / `test`, region `sa-east-1` → connect → run a
+scan. The connect → scan → cost UI renders end to end.
+
+- **The variable is read once, at process start.** It can't be injected into a `tauri:dev` that's
+  already running — stop it and relaunch in the same shell with the variable set. If you see
+  "invalid credential" or a network error to `amazonaws.com`, it didn't take.
+- Fresh LocalStack shows every flagged resource at **Observed** (0 days coverage), so the account
+  panel's **primary** figure (Probable + Confirmed) is `$0` — everything lands in the context
+  figure. Seeing the primary figure populated needs scan history spread over days.
+- LocalStack/moto returns hundreds of canned AMI-backing snapshots, so the "orphan snapshots"
+  section is noisy — real AWS with `owner-ids self` would not be.
+- The permission audit degrades to "inconclusive" (LocalStack Community here runs only `ec2` +
+  `sts`, no IAM). The connection still completes.
+
+### "seed demo" — permanent dev tool
+
+`dev_seed_scan` / the **"seed demo"** button writes a ~30-resource fixture (every confidence
+level, both scales, io1/io2, priced + unpriced regions, intentional + neutral rows) straight into
+the store so the cost/inventory UI can be reviewed without a real AWS account and without spending
+money. Double-gated: `#[cfg(debug_assertions)]` in the core, `isDevMode()` on the button — it is
+**never in a production build**. Every touch point carries a `DEV-ONLY` marker
+(`grep -rn "DEV-ONLY" src src-tauri/src`).
+
+Per the CLAUDE.md scope-closure checklist (item 2), this one is **kept permanently** — it stays
+useful for validating any future scope visually. Only genuinely temporary, single-use dev
+affordances (e.g. a `dev_force_reauth`) get removed at closure. Touch points:
+`src-tauri/src/store/demo_seed.rs`, plus the marked lines in `store/mod.rs`, `commands.rs`,
+`lib.rs`, `core/models/ipc-contracts.ts`, `core/scan/scan.store.ts`,
+`features/main/scan-panel.component.ts`, and the `demo_seed_produces_a_populated_cost_result` test.
 
 ## Notes / v1 simplifications
 

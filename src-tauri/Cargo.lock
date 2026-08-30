@@ -1137,7 +1137,7 @@ dependencies = [
 
 [[package]]
 name = "cost-tracer"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aws-config",
  "aws-credential-types",
@@ -1159,6 +1159,7 @@ dependencies = [
  "tauri-plugin-opener",
  "thiserror 2.0.20",
  "tokio",
+ "toml 0.8.2",
 ]
 
 [[package]]

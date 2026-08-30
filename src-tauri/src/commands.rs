@@ -358,6 +358,15 @@ pub fn resource_unmark_intentional(input: ResourceRef, db: State<'_, Db>) -> App
     db.unmark_intentional(&connected_account_id()?, &input)
 }
 
+// DEV-ONLY (`#[cfg(debug_assertions)]`). Replaces the connected account's scan history with a
+// realistic fixture so the Scope 3 cost UI can be reviewed with representative data — no AWS.
+// Remove with the other dev affordances at Scope 3 closure (CLAUDE.md checklist, item 2).
+#[cfg(debug_assertions)]
+#[tauri::command]
+pub fn dev_seed_scan(db: State<'_, Db>) -> AppResult<ScanResult> {
+    db.seed_demo(&connected_account_id()?)
+}
+
 fn connected_account_id() -> AppResult<String> {
     vault::load()?
         .map(|s| s.account_id)

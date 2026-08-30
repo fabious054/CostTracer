@@ -1,6 +1,6 @@
 {
   "name": "cost-tracer",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Local-first AWS cost visibility tool — read-only scans for idle resources, confirmed over time.",
   "license": "MIT",
   "private": true,
@@ -12,7 +12,11 @@
     "test": "ng test",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "localstack:up": "docker compose -f docker-compose.localstack.yml up -d",
+    "localstack:down": "docker compose -f docker-compose.localstack.yml down",
+    "localstack:seed": "bash scripts/localstack-seed.sh",
+    "tauri:dev:localstack": "node scripts/dev-localstack.mjs"
   },
   "dependencies": {
     "@angular/common": "^20.0.0",

@@ -4,12 +4,13 @@
 
 > Local-first AWS cost visibility tool. Tracks idle resources over time to confirm real waste — read-only, no credentials ever leave your machine.
 
-🚧 **Status:** In active development — **Phase 0**. Two scopes are closed and tagged:
+🚧 **Status:** **Phase 0 complete.** Three scopes are closed and tagged:
 
 - **`v0.1.0-scope1` — AWS connection flow.** Connect via auto-detected local AWS config, manual access-key entry, or IAM Identity Center (SSO) device authorization. Every identity is screened for over-broad permissions before use; credentials are stored in the OS-native vault, never in plain text.
 - **`v0.2.0-scope2` — Idle-resource detectors.** Unattached EBS volumes, idle Elastic IPs, and orphan snapshots, with a local scan history (SQLite) and a four-level confidence scale (Observed → Persisting → Probable → Confirmed) that rises the longer a resource stays idle across scans. Every flagged resource carries a plain-language explanation; any resource can be marked *intentional* — a local-only flag, the tool never writes to AWS.
+- **`v0.3.0-scope3` — Estimated cost.** Every flagged resource shows an estimated monthly cost from a fixed local price table (nine regions), rolled up per detector and per account. Primary in USD; in Portuguese an approximate BRL follows at a fixed rate. Resources in a region the table doesn't cover are counted separately, never approximated. No AWS Price List API call.
 
-These tags mark closed scopes, not packaged downloads — there is no installer yet. Run from source: `npm install`, then `npm run tauri:dev`. Cost estimation and the rest of Phase 0 are still open (see Roadmap).
+These tags mark closed scopes, not packaged downloads — there is no installer yet. Run from source: `npm install`, then `npm run tauri:dev`. Phase 1 is next (see Roadmap).
 
 ---
 
@@ -21,7 +22,7 @@ Most existing tools require pasting AWS credentials into a third-party web platf
 
 ## The Solution
 
-CostTracer is a desktop application that audits your AWS account for idle and wasteful resources, running **100% locally** on your machine. It inspects your account, flags likely waste, and — critically — **confirms that waste over time** before you ever act on it. Estimating the accumulated cost of each finding is the next piece of Phase 0. No credential, no account data, and no telemetry ever leaves your computer.
+CostTracer is a desktop application that audits your AWS account for idle and wasteful resources, running **100% locally** on your machine. It inspects your account, flags likely waste, **estimates its monthly cost** from a fixed local price table, and — critically — **confirms that waste over time** before you ever act on it. No credential, no account data, and no telemetry ever leaves your computer.
 
 ### The three pillars
 
@@ -46,11 +47,11 @@ Most tools in this space only do #1. CostTracer is designed around all three fro
 
 ## Roadmap
 
-- **Phase 0 — Honest visibility** *(current)*: read-only scan, estimated cost, and temporal confirmation (a resource must stay idle across multiple scans before it counts as confirmed waste). No write actions.
+- **Phase 0 — Honest visibility** *(complete)*: read-only scan, estimated cost, and temporal confirmation (a resource must stay idle across multiple scans before it counts as confirmed waste). No write actions.
   - ✅ AWS connection flow + permission audit + native vault — `v0.1.0-scope1`
   - ✅ Idle-resource detectors (EBS, Elastic IP, snapshot) + scan history + four-level confidence scale — `v0.2.0-scope2`
-  - ☐ Estimated cost per flagged resource and accumulated total
-- **Phase 1 — Reliability & coverage**: more resource types, multi-region support, exception/allowlist system (e.g. tag-based exclusions) to reduce false positives.
+  - ✅ Estimated monthly cost per flagged resource, per detector, and per account (fixed local price table, USD with a pt-only approximate BRL) — `v0.3.0-scope3`
+- **Phase 1 — Reliability & coverage** *(next)*: more resource types, multi-region support, exception/allowlist system (e.g. tag-based exclusions) to reduce false positives.
 - **Phase 2 — Assisted action**: opt-in dry-run simulation and, eventually, guarded execution — starting only with the resource types the confidence layer trusts most.
 - **Phase 3 — Multi-account**: relevant for organizations using AWS Organizations; not a near-term priority.
 

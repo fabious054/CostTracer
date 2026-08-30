@@ -75,6 +75,18 @@ export class ScanStore {
     }
   }
 
+  /** DEV-ONLY — seed a realistic fixture for reviewing the cost UI. Removed at Scope 3 closure. */
+  async seedDemo(): Promise<void> {
+    this._error.set(null);
+    try {
+      this._result.set(await this.ipc.call('dev_seed_scan'));
+      this._phase.set('idle');
+    } catch (e) {
+      this._error.set(errMsg(e));
+      this._phase.set('error');
+    }
+  }
+
   async markIntentional(item: ResourceItem): Promise<void> {
     await this.ipc.call('resource_mark_intentional', { input: refOf(item) });
     this.patchIntentional(item, true);

@@ -1,6 +1,6 @@
 [package]
 name = "cost-tracer"
-version = "0.2.0"
+version = "0.3.0"
 description = "Local-first AWS cost visibility tool"
 authors = ["CostTracer contributors"]
 edition = "2021"
@@ -27,6 +27,8 @@ dirs = "5"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 # Scope 2 scan-history store (ADR 0002). `bundled` = SQLite compiled from source, no system dep.
 rusqlite = { version = "0.32", features = ["bundled"] }
+# Scope 3 fixed price table (ADR 0003 D1) — parsed once from an embedded TOML string.
+toml = "0.8"
 
 aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-credential-types = { version = "1", features = ["hardcoded-credentials"] }
@@ -41,3 +43,10 @@ aws-sdk-ssooidc = "1"
 [features]
 # This feature is used for production builds where `devUrl` is not needed.
 custom-protocol = ["tauri/custom-protocol"]
+
+# Only for the opt-in LocalStack harness in `tests/localstack.rs` (ADR 0003 D4). Not built by
+# `cargo test` — run it with `cargo test --test localstack -- --ignored`.
+[dev-dependencies]
+aws-config = { version = "1", features = ["behavior-version-latest"] }
+aws-sdk-ec2 = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

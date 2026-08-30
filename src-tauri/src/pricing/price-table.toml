@@ -1,0 +1,148 @@
+# CostTracer — fixed price table (Scope 3, ADR 0003 decision D1)
+#
+# Embedded in the binary via include_str!. No AWS Price List API call — real-time pricing is
+# backlog. All amounts are USD, AWS on-demand list price, for the 9 covered regions only.
+#
+# SOURCES (re-check these pages when you touch a number, and bump `captured`):
+#   EBS volumes & snapshots : https://aws.amazon.com/ebs/pricing/
+#   Elastic IP (idle)       : https://aws.amazon.com/vpc/pricing/    (Public IPv4 / idle EIP)
+#
+# HOW TO UPDATE
+#   1. Open the pages above, switch to the region, copy the number.
+#   2. Edit here; keep every region block complete (all EBS types keyed).
+#   3. `cargo test -p cost-tracer pricing::` must stay green (shape + no zero/negative prices).
+#   4. Note the change + date in docs/development.md is not required, but bump `captured` below.
+#
+# A region that is NOT in this file is reported as "price unavailable" — never approximated
+# (ADR 0003). Add the region here to fix that.
+
+[meta]
+captured = "2026-08-30"
+# AWS bills a "month" as 730 hours everywhere. Used to turn per-hour rates (Elastic IP) into
+# the per-month reference figure the UI shows.
+hours_per_month = 730
+
+[fx]
+# Fixed USD->BRL rate, refreshed by hand from time to time — never real-time (that's backlog,
+# ADR 0003). The UI always shows USD and labels the BRL figure "approximate".
+# Last set: 2026-08-30 (spot was ~5.16-5.19 BRL/USD across sources).
+usd_brl = 5.18
+
+# ---------------------------------------------------------------------------------------------
+# EBS volumes — USD per GiB-month, by volume type, by region.
+# io1/io2 also bill for provisioned IOPS and gp3 for provisioned throughput above baseline;
+# the scan does not capture those, so those estimates are GiB-only (flagged in the UI).
+# ---------------------------------------------------------------------------------------------
+
+[ebs.us-east-1]
+gp3 = 0.08
+gp2 = 0.10
+io1 = 0.125
+io2 = 0.125
+st1 = 0.045
+sc1 = 0.015
+standard = 0.05
+
+[ebs.us-east-2]
+gp3 = 0.08
+gp2 = 0.10
+io1 = 0.125
+io2 = 0.125
+st1 = 0.045
+sc1 = 0.015
+standard = 0.05
+
+[ebs.us-west-1]
+gp3 = 0.096
+gp2 = 0.12
+io1 = 0.15
+io2 = 0.15
+st1 = 0.054
+sc1 = 0.018
+standard = 0.06
+
+[ebs.us-west-2]
+gp3 = 0.08
+gp2 = 0.10
+io1 = 0.125
+io2 = 0.125
+st1 = 0.045
+sc1 = 0.015
+standard = 0.05
+
+[ebs.eu-west-1]
+gp3 = 0.088
+gp2 = 0.11
+io1 = 0.138
+io2 = 0.138
+st1 = 0.0495
+sc1 = 0.0165
+standard = 0.055
+
+[ebs.eu-central-1]
+gp3 = 0.0952
+gp2 = 0.119
+io1 = 0.149
+io2 = 0.149
+st1 = 0.0536
+sc1 = 0.0179
+standard = 0.0595
+
+[ebs.ap-southeast-1]
+gp3 = 0.096
+gp2 = 0.12
+io1 = 0.15
+io2 = 0.15
+st1 = 0.054
+sc1 = 0.018
+standard = 0.06
+
+[ebs.ap-northeast-1]
+gp3 = 0.096
+gp2 = 0.12
+io1 = 0.15
+io2 = 0.15
+st1 = 0.054
+sc1 = 0.018
+standard = 0.06
+
+[ebs.sa-east-1]
+gp3 = 0.1276
+gp2 = 0.19
+io1 = 0.238
+io2 = 0.238
+st1 = 0.0765
+sc1 = 0.0255
+standard = 0.095
+
+# ---------------------------------------------------------------------------------------------
+# Elastic IP — USD per hour for an idle (unassociated) address, by region.
+# ---------------------------------------------------------------------------------------------
+
+[elastic_ip]
+us-east-1 = 0.005
+us-east-2 = 0.005
+us-west-1 = 0.005
+us-west-2 = 0.005
+eu-west-1 = 0.005
+eu-central-1 = 0.005
+ap-southeast-1 = 0.005
+ap-northeast-1 = 0.005
+sa-east-1 = 0.005
+
+# ---------------------------------------------------------------------------------------------
+# EBS snapshots — USD per GB-month of stored data, by region.
+# Real billing is on incremental (changed-block) size; the scan only has the source volume
+# size, so this is an upper bound (flagged in the UI).
+# ---------------------------------------------------------------------------------------------
+
+[snapshot]
+us-east-1 = 0.05
+us-east-2 = 0.05
+us-west-1 = 0.055
+us-west-2 = 0.05
+eu-west-1 = 0.05
+eu-central-1 = 0.054
+ap-southeast-1 = 0.05
+ap-northeast-1 = 0.05
+sa-east-1 = 0.0684

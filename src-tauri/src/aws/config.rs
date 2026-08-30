@@ -1,10 +1,20 @@
 //! Building `SdkConfig` for each of the three credential sources.
 
-use aws_config::{BehaviorVersion, Region, SdkConfig};
+use aws_config::{BehaviorVersion, ConfigLoader, Region, SdkConfig};
 use aws_credential_types::Credentials;
 
 const DEFAULT_REGION: &str = "us-east-1";
 const PROVIDER_NAME: &str = "cost-tracer";
+
+/// LocalStack / test override (ADR 0003 D4): when `AWS_ENDPOINT_URL` is set, every SDK client
+/// talks to that endpoint instead of real AWS. Unset in production — only the opt-in LocalStack
+/// harness sets it.
+fn with_endpoint_override(loader: ConfigLoader) -> ConfigLoader {
+    match std::env::var("AWS_ENDPOINT_URL") {
+        Ok(url) if !url.is_empty() => loader.endpoint_url(url),
+        _ => loader,
+    }
+}
 
 /// Pick a region: explicit input, then `AWS_REGION` / `AWS_DEFAULT_REGION`, then `us-east-1`.
 pub fn resolve_region(explicit: Option<&str>) -> String {
@@ -50,11 +60,13 @@ pub async fn from_static_keys(
         None,
         PROVIDER_NAME,
     );
-    aws_config::defaults(BehaviorVersion::latest())
-        .region(Region::new(region.to_string()))
-        .credentials_provider(creds)
-        .load()
-        .await
+    with_endpoint_override(
+        aws_config::defaults(BehaviorVersion::latest())
+            .region(Region::new(region.to_string()))
+            .credentials_provider(creds),
+    )
+    .load()
+    .await
 }
 
 /// The default provider chain, optionally pinned to a named profile (detected configuration).
@@ -64,16 +76,18 @@ pub async fn from_profile(profile: Option<&str>, region: &str) -> SdkConfig {
     if let Some(name) = profile.filter(|p| !p.is_empty()) {
         loader = loader.profile_name(name);
     }
-    loader.load().await
+    with_endpoint_override(loader).load().await
 }
 
 /// Config with no credential provider — for the unauthenticated SSO OIDC / SSO portal calls.
 pub async fn no_auth(region: &str) -> SdkConfig {
-    aws_config::defaults(BehaviorVersion::latest())
-        .region(Region::new(region.to_string()))
-        .no_credentials()
-        .load()
-        .await
+    with_endpoint_override(
+        aws_config::defaults(BehaviorVersion::latest())
+            .region(Region::new(region.to_string()))
+            .no_credentials(),
+    )
+    .load()
+    .await
 }
 
 pub fn region_of(config: &SdkConfig) -> String {

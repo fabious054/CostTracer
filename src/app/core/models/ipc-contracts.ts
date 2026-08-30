@@ -69,6 +69,9 @@ export interface IpcCommandMap {
   scan_latest: { args: undefined; result: import('./scan').ScanResult | null };
   resource_mark_intentional: { args: { input: import('./scan').ResourceRef }; result: void };
   resource_unmark_intentional: { args: { input: import('./scan').ResourceRef }; result: void };
+
+  // DEV-ONLY — debug builds only, gated by isDevMode() in the UI. Removed at Scope 3 closure.
+  dev_seed_scan: { args: undefined; result: import('./scan').ScanResult };
 }
 
 export type IpcCommand = keyof IpcCommandMap;
