@@ -122,11 +122,13 @@ throughout; see `cost-tracer/scope-reports/` for the per-scope validation logs.
   regions-unknown states, the partial-scan seal and the folded region-error block are checked
   visually. Validated live during Scope 4 against a real multi-region account: a full progressive
   scan, cancellation, cross-account isolation, the missing-`ec2:DescribeRegions` path. Scope 5's
-  two detectors were exercised against LocalStack (which has no `logs` / `rds`, so their
-  per-region errors — folded into one block — and the resulting `partial` seal are what showed);
-  the cost UI incl. the empty-group `$0.00` and the unpriced-region path was reviewed via
-  `dev_seed_scan`. Still unobserved (same reason as Scope 4): a real account with actual
-  retention-less log groups / orphan RDS snapshots, and the Observed→Confirmed progression over
+  two detectors were validated live against real accounts (`890247063933`, `770017446846`): the
+  CloudWatch Logs detector flagged 2 retention-less groups out of ~283 with the right sizes /
+  cost / qualifiers and cross-account isolation held; the RDS-snapshot detector returned 0 orphans
+  (a valid no-false-positive result). Against LocalStack (no `logs` / `rds`) the same detectors'
+  per-region errors fold into one block and end the scan `partial` — the missing-permission
+  shape. The empty-group `$0.00` and unpriced-region paths also have unit tests + a `dev_seed_scan`
+  fixture. Still unobserved (a time factor, not coverage): the Observed→Confirmed progression over
   real days.
 
 ## Estimated cost — the price table (Scope 3, ADR 0003; extended in Scope 5, ADR 0005)
