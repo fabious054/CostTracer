@@ -4,7 +4,7 @@
 
 > Local-first AWS cost visibility tool. Tracks idle resources over time to confirm real waste — read-only, no credentials ever leave your machine.
 
-🚧 **Status:** **Phase 0 complete; Phase 1 underway.** Five scopes are closed and tagged:
+🚧 **Status:** **Phases 0 and 1 complete.** Five scopes are closed and tagged:
 
 - **`v0.1.0-scope1` — AWS connection flow.** Connect via auto-detected local AWS config, manual access-key entry, or IAM Identity Center (SSO) device authorization. Every identity is screened for over-broad permissions before use; credentials are stored in the OS-native vault, never in plain text.
 - **`v0.2.0-scope2` — Idle-resource detectors.** Unattached EBS volumes, idle Elastic IPs, and orphan snapshots, with a local scan history (SQLite) and a four-level confidence scale (Observed → Persisting → Probable → Confirmed) that rises the longer a resource stays idle across scans. Every flagged resource carries a plain-language explanation; any resource can be marked *intentional* — a local-only flag, the tool never writes to AWS.
@@ -12,7 +12,7 @@
 - **`v0.4.0-scope4` — Multi-region coverage** *(first scope of Phase 1)*. A scan discovers the account's enabled regions itself (`ec2:DescribeRegions`) and checks every one — no manual region choice. It runs region by region, showing results as each finishes and letting you cancel mid-run; regions already done stay saved. When the connected credential can't list regions, the tool says so plainly and doesn't guess a count or run a pointless scan.
 - **`v0.5.0-scope5` — Two more detectors.** CloudWatch Logs groups with no retention policy (AWS keeps logs forever by default) and orphan RDS snapshots (a manual DB snapshot whose source instance is gone). Both plug into the existing history, confidence scale, and cost rollups. An empty log group still shows an honest `$0.00/mo` — flagged because hundreds of them are a signal, not hidden because one is cheap.
 
-These tags mark closed scopes, not packaged downloads — there is no installer yet. Run from source: `npm install`, then `npm run tauri:dev`. Phase 1 continues (see Roadmap).
+These tags mark closed scopes, not packaged downloads — there is no installer yet. Run from source: `npm install`, then `npm run tauri:dev`. Phase 2 is next (see Roadmap).
 
 ---
 
@@ -53,7 +53,7 @@ Most tools in this space only do #1. CostTracer is designed around all three fro
   - ✅ AWS connection flow + permission audit + native vault — `v0.1.0-scope1`
   - ✅ Idle-resource detectors (EBS, Elastic IP, snapshot) + scan history + four-level confidence scale — `v0.2.0-scope2`
   - ✅ Estimated monthly cost per flagged resource, per detector, and per account (fixed local price table, USD with a pt-only approximate BRL) — `v0.3.0-scope3`
-- **Phase 1 — Reliability & coverage** *(in progress)*: multi-region support, more resource types, and an exception system to reduce false positives (✅ local "mark as intentional" since Scope 2, never writes to AWS; recognising existing AWS tags was evaluated and deliberately deferred to preserve the "connect and it works, no prior setup in your account" pitch — product backlog).
+- **Phase 1 — Reliability & coverage** *(complete)*: multi-region support, more resource types, and an exception system to reduce false positives (✅ local "mark as intentional" since Scope 2, never writes to AWS; recognising existing AWS tags was evaluated and deliberately deferred to preserve the "connect and it works, no prior setup in your account" pitch — product backlog).
   - ✅ Multi-region coverage — auto-discovered regions, progressive region-by-region scan, cancellable — `v0.4.0-scope4`
   - ✅ CloudWatch Logs (no retention) + orphan RDS snapshot detectors — `v0.5.0-scope5`
 - **Phase 2 — Assisted action**: opt-in dry-run simulation and, eventually, guarded execution — starting only with the resource types the confidence layer trusts most.

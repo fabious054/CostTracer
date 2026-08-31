@@ -4,7 +4,7 @@
 
 > Ferramenta local-first de visibilidade de custos AWS. Rastreia recursos ociosos ao longo do tempo para confirmar desperdício real — somente leitura, nenhuma credencial sai da sua máquina.
 
-🚧 **Status:** **Fase 0 concluída; Fase 1 em andamento.** Cinco escopos estão fechados e com tag:
+🚧 **Status:** **Fases 0 e 1 concluídas.** Cinco escopos estão fechados e com tag:
 
 - **`v0.1.0-scope1` — Fluxo de conexão com a AWS.** Conexão via configuração AWS local detectada automaticamente, entrada manual de access key, ou autorização por dispositivo do IAM Identity Center (SSO). Toda identidade é verificada quanto a permissões excessivas antes do uso; credenciais ficam no cofre nativo do sistema, nunca em texto plano.
 - **`v0.2.0-scope2` — Detectores de recursos ociosos.** Volumes EBS não anexados, Elastic IPs ociosos e snapshots órfãos, com histórico local de scans (SQLite) e uma escala de confiança de quatro níveis (Observado → Persistindo → Provável → Confirmado) que sobe quanto mais tempo um recurso permanece ocioso ao longo dos scans. Todo recurso sinalizado traz uma explicação em linguagem clara; qualquer recurso pode ser marcado como *intencional* — um marcador puramente local, a ferramenta nunca escreve na AWS.
@@ -12,7 +12,7 @@
 - **`v0.4.0-scope4` — Cobertura multi-região** *(primeiro escopo da Fase 1)*. O scan descobre sozinho as regiões habilitadas da conta (`ec2:DescribeRegions`) e verifica todas — sem escolha manual de região. Roda região a região, mostrando os resultados conforme cada uma termina e permitindo cancelar no meio; regiões já concluídas ficam salvas. Quando a credencial conectada não consegue listar as regiões, a ferramenta diz isso claramente e não chuta uma contagem nem roda um scan inútil.
 - **`v0.5.0-scope5` — Mais dois detectores.** Log Groups do CloudWatch sem política de retenção (a AWS guarda logs para sempre por padrão) e snapshots de RDS órfãos (um snapshot manual cuja instância de origem não existe mais). Os dois entram no histórico, na escala de confiança e nas somas de custo já existentes. Um Log Group vazio ainda mostra um `$0.00/mês` honesto — sinalizado porque centenas deles são um sintoma, não escondido porque um é barato.
 
-Essas tags marcam escopos fechados, não downloads empacotados — ainda não há instalador. Rode a partir do código: `npm install` e depois `npm run tauri:dev`. A Fase 1 continua (ver Roadmap).
+Essas tags marcam escopos fechados, não downloads empacotados — ainda não há instalador. Rode a partir do código: `npm install` e depois `npm run tauri:dev`. A Fase 2 é a próxima (ver Roadmap).
 
 ---
 
@@ -53,7 +53,7 @@ A maioria das ferramentas do mercado cobre só o item 1. O CostTracer é desenha
   - ✅ Fluxo de conexão com a AWS + auditoria de permissões + cofre nativo — `v0.1.0-scope1`
   - ✅ Detectores de recursos ociosos (EBS, Elastic IP, snapshot) + histórico de scans + escala de confiança de quatro níveis — `v0.2.0-scope2`
   - ✅ Custo mensal estimado por recurso sinalizado, por detector e por conta (tabela de preços fixa e local, USD com BRL aproximado só em pt) — `v0.3.0-scope3`
-- **Fase 1 — Confiabilidade e abrangência** *(em andamento)*: suporte multi-região, mais tipos de recurso, e um sistema de exceções para reduzir falsos positivos (✅ "marcar como intencional" local desde o Escopo 2, nunca escreve na AWS; reconhecimento de tags já existentes na AWS foi avaliado e conscientemente adiado para preservar o pitch "conecte e funciona, sem setup prévio na sua conta" — backlog de produto).
+- **Fase 1 — Confiabilidade e abrangência** *(concluída)*: suporte multi-região, mais tipos de recurso, e um sistema de exceções para reduzir falsos positivos (✅ "marcar como intencional" local desde o Escopo 2, nunca escreve na AWS; reconhecimento de tags já existentes na AWS foi avaliado e conscientemente adiado para preservar o pitch "conecte e funciona, sem setup prévio na sua conta" — backlog de produto).
   - ✅ Cobertura multi-região — regiões descobertas automaticamente, scan progressivo região a região, cancelável — `v0.4.0-scope4`
   - ✅ Detectores de CloudWatch Logs (sem retenção) + RDS snapshot órfão — `v0.5.0-scope5`
 - **Fase 2 — Ação assistida**: simulação dry-run opcional e, eventualmente, execução controlada — começando apenas pelos tipos de recurso em que a camada de confiança mais confia.
