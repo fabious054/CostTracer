@@ -25,6 +25,16 @@ const GLYPH: Record<RegionScanState | 'pending', string> = {
   template: `
     @if (account(); as a) {
       <header class="bar">
+        @if (scanPartial()) {
+          <span class="status-flag" [ctTooltip]="i18n.t('scan.meta.partial.hint')" tabindex="0">
+            <svg class="i" viewBox="0 0 16 16" aria-hidden="true">
+              <circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.4" />
+              <circle cx="8" cy="5" r="1" fill="currentColor" />
+              <path d="M8 7.4 V12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+            </svg>
+            {{ i18n.t('scan.meta.partial') }}
+          </span>
+        }
         <div class="acct-block">
           <span class="acct">{{ i18n.t('scan.accountBar', { account: a.accountId }) }}</span>
           @if (a.regionsDiscovered) {
@@ -54,12 +64,38 @@ const GLYPH: Record<RegionScanState | 'pending', string> = {
   styles: [
     `
       .bar {
+        position: relative;
         display: flex;
         align-items: center;
         gap: 12px;
         padding: 7px 20px;
         border-bottom: 1px solid var(--ct-border-faint);
         background: var(--ct-panel);
+      }
+      /* Same treatment as the "approx FX" flag on the cost card — only the anchor differs:
+         it straddles the header's bottom border instead of the card's top border. */
+      .status-flag {
+        position: absolute;
+        bottom: -8px;
+        left: 20px;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 1px 7px;
+        border-radius: 999px;
+        background: var(--ct-panel);
+        border: 1px solid var(--ct-warning-border, var(--ct-border-line));
+        color: var(--ct-warn);
+        font-size: 9px;
+        font-weight: 600;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+        white-space: nowrap;
+        cursor: help;
+      }
+      .status-flag .i {
+        width: 9px;
+        height: 9px;
       }
       .acct-block {
         display: flex;
@@ -106,6 +142,11 @@ export class MainViewComponent {
     const s = this.connection.state();
     return s.step === 'connected' ? s.account : null;
   });
+
+  /** The last finished scan of the connected account failed in one or more regions. */
+  protected readonly scanPartial = computed(
+    () => this.scan.phase() !== 'scanning' && this.scan.result()?.status === 'partial',
+  );
 
   /** One region per line with a status glyph — reflects the scan's per-region progress. */
   protected readonly regionsTooltip = computed(() => {

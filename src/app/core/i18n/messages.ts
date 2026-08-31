@@ -163,6 +163,7 @@ const EN = {
   'scan.error.retry': 'Try again',
   'scan.meta.lastRun': 'Last scan {when}',
   'scan.meta.partial': 'Partial — some regions failed',
+  'scan.meta.partial.hint': 'Open a detector section to see which regions failed and why.',
   'scan.staleCredential':
     "Showing the last scan ({when}). The credential connected now can't verify your regions — reconnect with a valid one to refresh this.",
   'scan.regionsBlocked':
@@ -385,6 +386,7 @@ const PT: Record<MessageKey, string> = {
   'scan.error.retry': 'Tentar de novo',
   'scan.meta.lastRun': 'Último scan {when}',
   'scan.meta.partial': 'Parcial — algumas regiões falharam',
+  'scan.meta.partial.hint': 'Abra uma seção de detector para ver quais regiões falharam e por quê.',
   'scan.staleCredential':
     'Mostrando o último scan ({when}). A credencial conectada agora não consegue verificar suas regiões — reconecte com uma credencial válida para atualizar.',
   'scan.regionsBlocked':
