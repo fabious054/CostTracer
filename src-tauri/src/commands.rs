@@ -417,8 +417,9 @@ pub fn resource_unmark_intentional(input: ResourceRef, db: State<'_, Db>) -> App
 }
 
 // DEV-ONLY (`#[cfg(debug_assertions)]`). Replaces the connected account's scan history with a
-// realistic fixture so the Scope 3 cost UI can be reviewed with representative data — no AWS.
-// Remove with the other dev affordances at Scope 3 closure (CLAUDE.md checklist, item 2).
+// realistic fixture so the cost/inventory UI can be reviewed with representative data — no AWS.
+// Kept permanently as a dev tool (CLAUDE.md scope-closure checklist, item 2 exception), not
+// removed at any scope close.
 #[cfg(debug_assertions)]
 #[tauri::command]
 pub fn dev_seed_scan(db: State<'_, Db>) -> AppResult<ScanResult> {

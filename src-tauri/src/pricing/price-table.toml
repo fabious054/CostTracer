@@ -6,6 +6,8 @@
 # SOURCES (re-check these pages when you touch a number, and bump `captured`):
 #   EBS volumes & snapshots : https://aws.amazon.com/ebs/pricing/
 #   Elastic IP (idle)       : https://aws.amazon.com/vpc/pricing/    (Public IPv4 / idle EIP)
+#   CloudWatch Logs storage : https://aws.amazon.com/cloudwatch/pricing/   (Logs -> Storage/Archival)
+#   RDS backup storage      : https://aws.amazon.com/rds/pricing/          (Backup Storage, beyond free tier)
 #
 # HOW TO UPDATE
 #   1. Open the pages above, switch to the region, copy the number.
@@ -146,3 +148,50 @@ eu-central-1 = 0.054
 ap-southeast-1 = 0.05
 ap-northeast-1 = 0.05
 sa-east-1 = 0.0684
+
+# ---------------------------------------------------------------------------------------------
+# CloudWatch Logs — USD per GB-month of stored data, by region (Scope 5, ADR 0005 D3).
+# GB = 10^9 bytes (the unit the pricing page states). Storage/archival only — ingestion
+# (~$0.50/GB one-off) is NOT included; the row carries a qualifier saying so. `storedBytes` is
+# AWS-reported and lags real time by hours (second qualifier). Infrequent-Access log groups are
+# priced here as STANDARD for now (IA pricing is backlog).
+# us-east-1 verified against official AWS pricing content; other regions scaled by the same
+# regional factors as [snapshot] pending a per-region capture — VERIFY before any release.
+# ---------------------------------------------------------------------------------------------
+
+[cw_logs]
+us-east-1 = 0.03
+us-east-2 = 0.03
+us-west-1 = 0.033
+us-west-2 = 0.03
+eu-west-1 = 0.03
+eu-central-1 = 0.0324
+ap-southeast-1 = 0.03
+ap-northeast-1 = 0.03
+sa-east-1 = 0.041
+
+# ---------------------------------------------------------------------------------------------
+# RDS backup / snapshot storage — USD per GB-month, by region (Scope 5, ADR 0005).
+# Priced on the source instance's allocated storage (upper bound on the incremental backup
+# size; flagged in the UI). For an ORPHAN snapshot the source instance is gone, so there is no
+# free-tier backup allowance offsetting it — the whole size is billable.
+#
+# RATE TO USE: a normal manual DB snapshot bills at the backup-storage rate ($0.095/GB-month in
+# us-east-1) — the same pool/tariff as automated backups. Do NOT confuse this with the separate,
+# opt-in "export snapshot to Amazon S3" feature, which is a different (cheaper, ~$0.023/GB) line
+# item. This detector only sees non-exported manual snapshots, so $0.095 is the right base.
+#
+# us-east-1 verified against official AWS pricing content; other regions scaled by the same
+# regional factors as [snapshot] pending a per-region capture — VERIFY before any release.
+# ---------------------------------------------------------------------------------------------
+
+[rds_snapshot]
+us-east-1 = 0.095
+us-east-2 = 0.095
+us-west-1 = 0.1045
+us-west-2 = 0.095
+eu-west-1 = 0.095
+eu-central-1 = 0.1026
+ap-southeast-1 = 0.095
+ap-northeast-1 = 0.095
+sa-east-1 = 0.13

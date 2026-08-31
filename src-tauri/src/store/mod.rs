@@ -3,7 +3,8 @@
 
 mod migrations;
 
-// DEV-ONLY — realistic fixture for reviewing the Scope 3 cost UI. Remove at Scope 3 closure.
+// DEV-ONLY — realistic fixture for reviewing the cost/inventory UI. Kept permanently
+// (CLAUDE.md checklist, item 2 exception).
 #[cfg(debug_assertions)]
 mod demo_seed;
 
@@ -23,10 +24,12 @@ use crate::model::{
 };
 use crate::util::now_unix_secs;
 
-const DETECTORS: [DetectorKind; 3] = [
+const DETECTORS: [DetectorKind; 5] = [
     DetectorKind::EbsUnattached,
     DetectorKind::ElasticIpIdle,
     DetectorKind::OrphanSnapshot,
+    DetectorKind::LogGroupNoRetention,
+    DetectorKind::OrphanRdsSnapshot,
 ];
 
 pub struct Db {
@@ -205,7 +208,8 @@ impl Db {
     }
 
     /// DEV-ONLY (`#[cfg(debug_assertions)]`). Replace this account's history with a realistic
-    /// fixture so the cost UI can be reviewed with representative data. Remove at Scope 3 closure.
+    /// fixture so the cost UI can be reviewed with representative data. Kept permanently
+    /// (CLAUDE.md checklist, item 2 exception).
     #[cfg(debug_assertions)]
     pub fn seed_demo(&self, account_id: &str) -> AppResult<ScanResult> {
         let conn = self.lock();
@@ -629,7 +633,7 @@ mod tests {
         scan_at(&db, 0, "vol-1", true);
         scan_at(&db, DAY, "vol-1", true);
         let latest = db.latest_scan_result("acc").unwrap().unwrap();
-        assert_eq!(latest.detectors.len(), 3);
+        assert_eq!(latest.detectors.len(), 5);
         assert_eq!(latest.detectors[0].items.len(), 1);
     }
 

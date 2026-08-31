@@ -97,6 +97,8 @@ const TYPE_TO_KIND: Record<ResourceType, DetectorKind> = {
   ebs_volume: 'ebs-unattached',
   elastic_ip: 'elastic-ip-idle',
   ebs_snapshot: 'orphan-snapshot',
+  cloudwatch_log_group: 'log-group-no-retention',
+  rds_snapshot: 'orphan-rds-snapshot',
 };
 
 /**

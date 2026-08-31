@@ -3,8 +3,18 @@
  * Dates cross the boundary as unix seconds (number); the webview formats them.
  */
 
-export type ResourceType = 'ebs_volume' | 'elastic_ip' | 'ebs_snapshot';
-export type DetectorKind = 'ebs-unattached' | 'elastic-ip-idle' | 'orphan-snapshot';
+export type ResourceType =
+  | 'ebs_volume'
+  | 'elastic_ip'
+  | 'ebs_snapshot'
+  | 'cloudwatch_log_group'
+  | 'rds_snapshot';
+export type DetectorKind =
+  | 'ebs-unattached'
+  | 'elastic-ip-idle'
+  | 'orphan-snapshot'
+  | 'log-group-no-retention'
+  | 'orphan-rds-snapshot';
 export type ScanStatus = 'running' | 'ok' | 'partial' | 'cancelled';
 export type ResourceState = 'alert' | 'neutral';
 export type ConfidenceLevel = 'observed' | 'persisting' | 'probable' | 'confirmed';
@@ -23,11 +33,19 @@ export interface RegionError {
 
 // --- Scope 3 — estimated cost (ADR 0003). Core produces USD; the webview does the BRL display. ---
 
-export type CostBasis = 'ebs-gib' | 'eip-flat' | 'snapshot-gib';
+export type CostBasis =
+  | 'ebs-gib'
+  | 'eip-flat'
+  | 'snapshot-gib'
+  | 'logs-gb-month'
+  | 'rds-snapshot-gb';
 export type CostQualifier =
   | 'ebs-iops-not-included'
   | 'snapshot-full-volume-size'
-  | 'ebs-type-assumed';
+  | 'ebs-type-assumed'
+  | 'logs-storage-only'
+  | 'logs-size-reported'
+  | 'rds-snapshot-allocated-size';
 export type CostUnavailable = 'region' | 'missing-fact';
 
 export interface EstimatedCost {

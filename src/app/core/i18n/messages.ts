@@ -171,6 +171,8 @@ const EN = {
   'scan.detector.ebs-unattached': 'Unattached EBS volumes',
   'scan.detector.elastic-ip-idle': 'Idle Elastic IPs',
   'scan.detector.orphan-snapshot': 'Orphan snapshots',
+  'scan.detector.log-group-no-retention': 'Log groups without retention',
+  'scan.detector.orphan-rds-snapshot': 'Orphan RDS snapshots',
   'scan.counts': '{alerting} alerting · {total} total',
   'scan.counts.hint': '{alerting} of {total} calling for attention',
   'scan.empty': 'None found in this account.',
@@ -190,12 +192,18 @@ const EN = {
     'Unassociated for {days} days of observation. Monitored since {date} — AWS reports no creation date for an Elastic IP, so we count from the first time CostTracer saw it.',
   'scan.explain.snapshot':
     'Source volume gone for {days} days of observation. Snapshots take longer to confirm (30 days) because they are commonly used as intentional retention.',
+  'scan.explain.logGroup':
+    'No retention policy for {days} days of observation — these logs are kept forever until one is set.',
+  'scan.explain.rdsSnapshot':
+    'Source DB instance gone for {days} days of observation. Snapshots take longer to confirm (30 days) because they are commonly kept as intentional backups.',
   'scan.neutralNote.associated-instance-stopped': 'Associated with a stopped instance.',
   'scan.neutralNote.snapshot-source-unknown': "Source volume can't be determined (AWS-created snapshot).",
+  'scan.neutralNote.rds-snapshot-source-unknown': "Source DB instance can't be determined.",
   'scan.markIntentional': 'Mark as intentional',
   'scan.intentional': 'Ignored — marked as intentional',
   'scan.undo': 'Undo',
   'scan.fact.size': '{n} GiB',
+  'scan.fact.stored': '{size} stored',
   'scan.fact.monitoredSince': 'monitored since {date}',
   'scan.fact.createdAgo': 'created {days} days ago',
 
@@ -207,6 +215,10 @@ const EN = {
   'cost.qualifier.ebs-iops-not-included': 'excludes provisioned IOPS/throughput',
   'cost.qualifier.snapshot-full-volume-size': 'based on full volume size; actual stored size is usually lower',
   'cost.qualifier.ebs-type-assumed': 'volume type not on file — priced as gp3',
+  'cost.qualifier.logs-storage-only': 'storage only — excludes ingestion',
+  'cost.qualifier.logs-size-reported': 'size reported by AWS, updated periodically',
+  'cost.qualifier.rds-snapshot-allocated-size':
+    "based on the instance's allocated storage; actual backup size is usually lower",
   'cost.detectorAmount': 'Est. {amount}/mo',
   'cost.detectorCount': 'across {count} flagged',
   'cost.unpricedTag': 'unpriced',
@@ -394,6 +406,8 @@ const PT: Record<MessageKey, string> = {
   'scan.detector.ebs-unattached': 'Volumes EBS não anexados',
   'scan.detector.elastic-ip-idle': 'Elastic IPs ociosos',
   'scan.detector.orphan-snapshot': 'Snapshots órfãos',
+  'scan.detector.log-group-no-retention': 'Log groups sem retenção',
+  'scan.detector.orphan-rds-snapshot': 'RDS snapshots órfãos',
   'scan.counts': '{alerting} em alerta · {total} no total',
   'scan.counts.hint': '{alerting} de {total} chamando atenção',
   'scan.empty': 'Nenhum encontrado nesta conta.',
@@ -413,12 +427,18 @@ const PT: Record<MessageKey, string> = {
     'Sem associação há {days} dias de observação. Monitorado desde {date} — a AWS não informa data de criação de um IP elástico, por isso contamos a partir da primeira vez que o CostTracer viu este recurso.',
   'scan.explain.snapshot':
     'Sem volume de origem há {days} dias de observação. Snapshots levam mais tempo para confirmar (30 dias) por serem comumente usados como retenção intencional.',
+  'scan.explain.logGroup':
+    'Sem política de retenção há {days} dias de observação — estes logs ficam guardados para sempre até alguém definir uma.',
+  'scan.explain.rdsSnapshot':
+    'Sem instância de origem há {days} dias de observação. Snapshots levam mais tempo para confirmar (30 dias) por serem comumente mantidos como backup intencional.',
   'scan.neutralNote.associated-instance-stopped': 'Associado a uma instância parada.',
   'scan.neutralNote.snapshot-source-unknown': 'Volume de origem não identificável (snapshot criado pela AWS).',
+  'scan.neutralNote.rds-snapshot-source-unknown': 'Instância de origem não identificável.',
   'scan.markIntentional': 'Marcar como intencional',
   'scan.intentional': 'Ignorado — marcado como intencional',
   'scan.undo': 'Desfazer',
   'scan.fact.size': '{n} GiB',
+  'scan.fact.stored': '{size} armazenados',
   'scan.fact.monitoredSince': 'monitorado desde {date}',
   'scan.fact.createdAgo': 'criado há {days} dias',
 
@@ -430,6 +450,10 @@ const PT: Record<MessageKey, string> = {
   'cost.qualifier.ebs-iops-not-included': 'não inclui IOPS/throughput provisionados',
   'cost.qualifier.snapshot-full-volume-size': 'com base no tamanho total do volume; o tamanho armazenado real costuma ser menor',
   'cost.qualifier.ebs-type-assumed': 'tipo de volume não cadastrado — precificado como gp3',
+  'cost.qualifier.logs-storage-only': 'só armazenamento — não inclui ingestão',
+  'cost.qualifier.logs-size-reported': 'tamanho informado pela AWS, atualizado periodicamente',
+  'cost.qualifier.rds-snapshot-allocated-size':
+    'com base no armazenamento alocado da instância; o tamanho real do backup costuma ser menor',
   'cost.detectorAmount': 'Est. {amount}/mês',
   'cost.detectorCount': 'em {count} sinalizado(s)',
   'cost.unpricedTag': 'sem preço',

@@ -54,7 +54,7 @@ pub fn run() {
             commands::scan_latest,
             commands::resource_mark_intentional,
             commands::resource_unmark_intentional,
-            // DEV-ONLY — removed at Scope 3 closure.
+            // DEV-ONLY — kept permanently (CLAUDE.md checklist, item 2 exception).
             #[cfg(debug_assertions)]
             commands::dev_seed_scan,
         ])

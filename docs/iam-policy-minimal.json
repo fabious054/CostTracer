@@ -17,7 +17,10 @@
         "ec2:DescribeVolumes",
         "ec2:DescribeAddresses",
         "ec2:DescribeSnapshots",
-        "ec2:DescribeInstances"
+        "ec2:DescribeInstances",
+        "logs:DescribeLogGroups",
+        "rds:DescribeDBSnapshots",
+        "rds:DescribeDBInstances"
       ],
       "Resource": "*"
     },

@@ -74,14 +74,14 @@ pub async fn run_scan(
             region,
         )
         .await;
-        let ec2 = aws_sdk_ec2::Client::new(&cfg);
 
         // Cancel wins the race — the region's AWS calls are dropped mid-flight and nothing is
         // persisted for it. Regions already written stay; the rest never run (ADR 0004 D1/D5).
+        // `run_region` builds its own per-service clients from `cfg` (ADR 0005 D4).
         let (findings, errs) = tokio::select! {
             biased;
             _ = cancel.cancelled() => { cancelled = true; break; }
-            out = detectors::run_region(&ec2) => out,
+            out = detectors::run_region(&cfg) => out,
         };
 
         db.record_region(scan_id, started_at, &stored.account_id, region, &findings, &errs)?;

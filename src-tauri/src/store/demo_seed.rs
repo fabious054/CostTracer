@@ -1,8 +1,9 @@
 //! DEV-ONLY (`#[cfg(debug_assertions)]`). Writes a realistic mid/large-company scan into the
-//! store so the Scope 3 cost UI can be reviewed with representative data — every confidence
+//! store so the cost/inventory UI can be reviewed with representative data — every confidence
 //! level, both currencies, the qualifiers, priced and unpriced regions, intentional and neutral
-//! rows. No AWS contact. Remove with the rest of the dev affordances at Scope 3 closure
-//! (CLAUDE.md scope-closure checklist, item 2). Grep marker: DEV-ONLY.
+//! rows, and (Scope 5) the CloudWatch Logs / RDS-snapshot detectors. No AWS contact. Kept
+//! permanently as a dev tool (CLAUDE.md scope-closure checklist, item 2 exception), not removed
+//! at any scope close. Grep marker: DEV-ONLY.
 
 use rusqlite::{params, Connection};
 use serde_json::json;
@@ -91,6 +92,52 @@ fn snap(
     }
 }
 
+/// CloudWatch Logs group. `stored_gb` doubles as the size fact (→ `storedBytes`); 0 = empty
+/// group (priced $0.00, still an alert). Standard confidence scale.
+fn log_group(
+    path: &'static str,
+    region: &'static str,
+    stored_gb: i64,
+    coverage_days: i64,
+    created_days_ago: i64,
+) -> Row {
+    Row {
+        kind: ResourceType::CloudwatchLogGroup,
+        id: path,
+        name: path,
+        region,
+        size_gib: stored_gb,
+        vol_type: "",
+        coverage_days,
+        alerting: true,
+        intentional: false,
+        created_days_ago,
+    }
+}
+
+/// Manual RDS snapshot. `allocated_gb` is the source instance's allocated storage. Snapshot scale.
+fn rds_snap(
+    id: &'static str,
+    name: &'static str,
+    region: &'static str,
+    allocated_gb: i64,
+    coverage_days: i64,
+    created_days_ago: i64,
+) -> Row {
+    Row {
+        kind: ResourceType::RdsSnapshot,
+        id,
+        name,
+        region,
+        size_gib: allocated_gb,
+        vol_type: "",
+        coverage_days,
+        alerting: true,
+        intentional: false,
+        created_days_ago,
+    }
+}
+
 fn neutral(mut r: Row) -> Row {
     r.alerting = false;
     r
@@ -139,6 +186,27 @@ fn fixture() -> Vec<Row> {
         snap("snap-0c1d2e3f4a5b60009", "sa-east-nightly-old", "sa-east-1", 128, 4, 6),
         // region not in the price table
         snap("snap-0c1d2e3f4a5b6000a", "ca-central-archive", "ca-central-1", 300, 35, 38),
+        // --- CloudWatch Logs groups with no retention (standard scale) ---
+        log_group("/aws/lambda/prod-image-resize", "us-east-1", 40, 90, 410),
+        log_group("/aws/lambda/legacy-cron-worker", "us-east-1", 5, 30, 210),
+        log_group("/aws/ecs/staging-api", "eu-west-1", 12, 6, 45),
+        // empty group — priced $0.00, still flagged
+        log_group("/aws/apigateway/dev-sandbox", "us-west-2", 0, 3, 20),
+        intentional(log_group("/aws/lambda/audit-trail-keep", "eu-central-1", 8, 20, 60)),
+        // region not in the price table
+        log_group("/aws/lambda/apsouth-batch", "ap-south-1", 15, 12, 120),
+        // neutral — retention IS set
+        neutral(log_group("/aws/lambda/prod-checkout", "us-east-1", 20, 0, 300)),
+        // --- Orphan manual RDS snapshots (snapshot scale) ---
+        rds_snap("prod-pg-final-2024", "prod-pg-final-2024", "us-east-1", 200, 240, 245),
+        rds_snap("manual-mysql-preupgrade", "manual-mysql-preupgrade", "us-east-1", 512, 92, 96),
+        intentional(rds_snap("compliance-2025q3", "compliance-2025q3", "eu-west-1", 256, 61, 64)),
+        rds_snap("analytics-rds-detached", "analytics-rds-detached", "us-west-2", 100, 24, 26),
+        rds_snap("hotfix-restore-point", "hotfix-restore-point", "eu-central-1", 64, 11, 13),
+        // region not in the price table
+        rds_snap("ca-central-rds-archive", "ca-central-rds-archive", "ca-central-1", 300, 35, 38),
+        // neutral — source instance still exists
+        neutral(rds_snap("nightly-prod-ok", "nightly-prod-ok", "us-east-1", 128, 0, 5)),
     ]
 }
 
@@ -157,6 +225,16 @@ fn facts_for(r: &Row) -> serde_json::Value {
         ResourceType::EbsSnapshot => json!({
             "sizeGiB": r.size_gib,
             "sourceVolumeId": if r.alerting { serde_json::Value::Null } else { json!("vol-0f0f0f0f0f0f0f0f0") },
+        }),
+        ResourceType::CloudwatchLogGroup => json!({
+            "storedBytes": r.size_gib * 1_000_000_000,
+            "retentionDays": if r.alerting { serde_json::Value::Null } else { json!(30) },
+            "logGroupClass": "STANDARD",
+        }),
+        ResourceType::RdsSnapshot => json!({
+            "allocatedStorageGb": r.size_gib,
+            "sourceDbInstanceId": if r.alerting { serde_json::Value::Null } else { json!("db-prod-1") },
+            "engine": "postgres",
         }),
     }
 }

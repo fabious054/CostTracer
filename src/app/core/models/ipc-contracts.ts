@@ -71,7 +71,8 @@ export interface IpcCommandMap {
   resource_mark_intentional: { args: { input: import('./scan').ResourceRef }; result: void };
   resource_unmark_intentional: { args: { input: import('./scan').ResourceRef }; result: void };
 
-  // DEV-ONLY — debug builds only, gated by isDevMode() in the UI. Removed at Scope 3 closure.
+  // DEV-ONLY — debug builds only, gated by isDevMode() in the UI. Kept permanently as a dev tool
+  // (CLAUDE.md scope-closure checklist, item 2 exception).
   dev_seed_scan: { args: undefined; result: import('./scan').ScanResult };
 }
 

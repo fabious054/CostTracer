@@ -55,27 +55,32 @@ src/                          Angular webview — no credential or AWS SDK code 
   app/features/
     onboarding/                   one component per step (see docs/scope-1-connection-flow.md)
     main/                         the post-connection screen: account bar + scan
-      main-view.component.ts        account bar: id, region count + live per-region status tooltip
+      main-view.component.ts        account bar: id, region count + live per-region status tooltip,
+                                   the "partial scan" status seal on the header's bottom border
       scan-panel.component.ts       first-run CTA, one fixed status line (progress + cancel),
                                    pre-scan multi-region warning, region panel, stale-credential
-                                   banner, the 3 detector sections
-      detector-section.component.ts full per-detector inventory, count, region errors, collapse
+                                   banner, the 5 detector sections
+      detector-section.component.ts per-detector inventory, count, collapse; region errors folded
+                                   by message (errKey) into one block per distinct error
       resource-row.component.ts     one resource; alerts highlighted + mandatory explanation
     shell/
       titlebar.component.ts        custom window chrome + language toggle + app version label
 src-tauri/src/
   lib.rs                       Tauri entry point (builder, state, command registration)
-  commands.rs                  one #[tauri::command] per side effect (20 commands)
+  commands.rs                  one #[tauri::command] per side effect (21 commands)
   session.rs                   in-memory OnboardingSession — holds secrets between commands
   vault.rs                     keyring (OS-native secret store) wrapper, with blob chunking
   error.rs, util.rs            shared error type + helpers
   aws/                         config, identity, regions (DescribeRegions discovery), permission_audit, sso, local_config
-  detectors/                   idle-resource detectors: ebs, elastic_ip, snapshot (+ mod = run_region)
+  detectors/                   idle-resource detectors: ebs, elastic_ip, snapshot, cw_logs,
+                               rds_snapshot (+ mod = run_region, which takes &SdkConfig and builds
+                               its own per-service clients — ADR 0005 D4)
   scan.rs                      scan orchestrator: discover regions → run detectors region-by-region,
                                emitting + persisting each as it finishes, cancellable mid-run
   store/                       bundled SQLite (rusqlite): migrations + begin_scan / record_region /
                                finish_scan (per-region txn) + build_scan_result + intentional flags
-  pricing/                     fixed price table (price-table.toml, embedded) + pure estimate() (Scope 3, ADR 0003)
+  pricing/                     fixed price table (price-table.toml — ebs / elastic_ip / snapshot /
+                               cw_logs / rds_snapshot, embedded) + pure estimate() (ADR 0003 + 0005)
   model.rs                     serde DTOs — source of truth for the frontend types
   tests/localstack.rs          opt-in #[ignore] harness — detector→store→pricing against LocalStack (ADR 0003 D4)
 docs/
@@ -85,6 +90,8 @@ docs/
   adr/0002-local-scan-persistence.md     SQLite engine, retention, streak semantics, kept the hand-rolled store
   adr/0003-resource-cost-estimation.md   price-table format, cost math in the core, USD/BRL, LocalStack
   adr/0004-multi-region-scan.md          discovery, per-region persistence, cancellation, scan:// events
+  adr/0005-scope-5-detectors.md          CloudWatch Logs retention + RDS orphan snapshot: type filter,
+                                        cost basis, run_region client plumbing
   iam-policy-minimal.json      embedded into the binary via include_str!; served by policy_minimal_read
 docker-compose.localstack.yml  opt-in LocalStack container for the harness above (not the app, not CI)
 scripts/localstack-seed.sh     seeds the LocalStack fixture the harness expects
@@ -92,58 +99,69 @@ scripts/localstack-seed.sh     seeds the LocalStack fixture the harness expects
 
 ## Verification status
 
-Scopes 1–4 are closed and tagged (`v0.1.0-scope1`, `v0.2.0-scope2`, `v0.3.0-scope3`,
-`v0.4.0-scope4` on `main`) — Phase 0 is complete, Phase 1 is in progress (Scope 4 was its first
-scope). The app has run live against a real AWS account throughout; see
-`cost-tracer/scope-reports/` for the per-scope validation logs.
+Scopes 1–5 are closed and tagged (`v0.1.0-scope1` … `v0.5.0-scope5` on `main`) — Phase 0 is
+complete, Phase 1 is in progress (Scopes 4 and 5). The app has run live against a real AWS account
+throughout; see `cost-tracer/scope-reports/` for the per-scope validation logs.
 
-- **Frontend**: `ng build` (dev + prod) clean; 47 unit tests pass (reducer + connection store +
-  scan store, incl. progressive multi-region merge and per-account isolation + i18n key-parity +
-  saved-urls + event-time + cost formatting). Prod bundle ≈ 75 kB estimated transfer.
-- **Rust core**: `cargo check` clean; `cargo test` 21/21 (confidence-scale cutoffs; scan-store
+- **Frontend**: `ng build` (dev + prod) clean; 56 unit tests pass (reducer, incl. the
+  `connection/resynced` transition + connection store, incl. progressive multi-region merge,
+  per-account isolation and the window↔vault `resync()` + i18n key-parity + `errKey` region-error
+  grouping + saved-urls + event-time + cost formatting). Prod bundle ≈ 76 kB estimated transfer.
+- **Rust core**: `cargo check` clean; `cargo test` 26/26 (confidence-scale cutoffs; scan-store
   coverage/streak, account scoping incl. `latest_is_scoped_to_the_account` and
   `a_scan_can_only_be_read_back_as_its_own_account`, `begin_scan`/`finish_scan` lifecycle;
-  vault chunk round-trip; price-table shape + `estimate()` per resource type incl. the
-  unpriced-region path; demo-seed fixture). One further test, `tests/localstack.rs`, is
-  `#[ignore]` — the opt-in LocalStack harness (see below). Crate families: `aws-config` /
-  `aws-sdk-{sts,iam,ec2,sso,ssooidc}` v1, `aws-credential-types` v1, `keyring` v3, `rusqlite` 0.32
-  (`bundled`), `toml` 0.8, `tauri` v2, `tokio` v1, `tokio-util` 0.7 (`CancellationToken`) — exact
-  resolved versions in `Cargo.toml` / `Cargo.lock`.
+  vault chunk round-trip; price-table shape + `estimate()` per resource type — EBS / EIP / EBS
+  snapshot / CloudWatch Logs (incl. an empty group priced `$0.00`, not "unavailable") / RDS
+  snapshot — plus the unpriced-region path; demo-seed fixture). One further test,
+  `tests/localstack.rs`, is `#[ignore]` — the opt-in LocalStack harness (see below). Crate
+  families: `aws-config` / `aws-sdk-{sts,iam,ec2,cloudwatchlogs,rds,sso,ssooidc}` v1,
+  `aws-credential-types` v1, `keyring` v3, `rusqlite` 0.32 (`bundled`), `toml` 0.8, `tauri` v2,
+  `tokio` v1, `tokio-util` 0.7 — exact resolved versions in `Cargo.toml` / `Cargo.lock`.
 - **Not covered by automated tests**: real AWS SDK calls (manual validation only); rendering of the
-  scan components — the progressive status line, cancel, region panel and the stale-credential /
-  regions-unknown states are checked visually. Validated live against a real multi-region account
-  during Scope 4: a full progressive scan, cancellation, cross-account isolation, and the
-  missing-`ec2:DescribeRegions` path (explicit failure, no silent single-region fallback). Still
-  unobserved: a real scan that finds an idle resource and the Observed→Confirmed progression over
-  real days (the owner won't create billable AWS resources just to test).
+  scan components — the progressive status line, cancel, region panel, stale-credential /
+  regions-unknown states, the partial-scan seal and the folded region-error block are checked
+  visually. Validated live during Scope 4 against a real multi-region account: a full progressive
+  scan, cancellation, cross-account isolation, the missing-`ec2:DescribeRegions` path. Scope 5's
+  two detectors were exercised against LocalStack (which has no `logs` / `rds`, so their
+  per-region errors — folded into one block — and the resulting `partial` seal are what showed);
+  the cost UI incl. the empty-group `$0.00` and the unpriced-region path was reviewed via
+  `dev_seed_scan`. Still unobserved (same reason as Scope 4): a real account with actual
+  retention-less log groups / orphan RDS snapshots, and the Observed→Confirmed progression over
+  real days.
 
-## Estimated cost — the price table (Scope 3, ADR 0003)
+## Estimated cost — the price table (Scope 3, ADR 0003; extended in Scope 5, ADR 0005)
 
 Prices come from **one fixed file**, `src-tauri/src/pricing/price-table.toml`, embedded in the
-binary with `include_str!`. No AWS Price List API call — real-time pricing is backlog. The engine
-(`pricing::estimate`) is a pure function of `(resource_type, region, facts)`; the cost figures and
-the "no price for this region" counts are computed in the core while the scan result is built
-(same place as the confidence level), and shipped in the DTO. The webview only formats them and,
-when the UI language is Portuguese, appends the approximate BRL conversion using the fixed
-`fx_usd_brl` rate from the same file.
+binary with `include_str!`. No AWS Price List API call — real-time pricing is backlog (and now the
+**next scope**: five hand-maintained tables — `ebs`, `elastic_ip`, `snapshot`, `cw_logs`,
+`rds_snapshot` — is where the deferral hits its scale limit). The engine (`pricing::estimate`) is
+a pure function of `(resource_type, region, facts)`; the cost figures and the "no price for this
+region" counts are computed in the core while the scan result is built (same place as the
+confidence level), and shipped in the DTO. The webview only formats them and, when the UI language
+is Portuguese, appends the approximate BRL conversion using the fixed `fx_usd_brl` rate.
 
 **Updating a price:**
 
-1. Open the source pages listed at the top of `price-table.toml` (EBS/snapshot: the EBS pricing
-   page; Elastic IP: the VPC pricing page), switch to the region, copy the number.
+1. Open the source pages listed at the top of `price-table.toml` (EBS/snapshot: EBS pricing;
+   Elastic IP: VPC pricing; CloudWatch Logs storage: CloudWatch pricing; RDS backup storage: RDS
+   pricing — read the `[rds_snapshot]` comment about the manual-snapshot vs export-to-S3 rate).
 2. Edit the file. Keep every region block complete — all seven EBS types keyed.
 3. Bump `captured` in `[meta]`.
-4. `cd src-tauri && cargo test pricing::` must stay green (it checks all 9 regions are present for
-   each resource kind and that no price is zero or negative).
+4. `cd src-tauri && cargo test pricing::` must stay green (all 9 regions present for each resource
+   kind, no price zero or negative).
 
 A region **not** in the file is reported as "price unavailable" and counted separately — never
-approximated. Add the region block to fix that. `[fx] usd_brl` is a **placeholder**, not a real
-quote; replace it before any release.
+approximated. `[fx] usd_brl` is a **placeholder**, not a real quote; replace it before any release.
 
-Two estimates are deliberately imprecise and carry a visible caveat (ADR 0003 D5): `io1`/`io2`
-volumes are priced GiB-only (provisioned IOPS not captured by the scan), and snapshots are priced
-on the source volume size (an upper bound; real billing is on incremental size). Capturing
-provisioned IOPS is backlog.
+Deliberately imprecise, each with a visible caveat: `io1`/`io2` GiB-only (provisioned IOPS not
+captured); EBS snapshots on source volume size (upper bound; real billing is incremental);
+CloudWatch Logs storage-only (ingestion excluded) and off `storedBytes` (AWS-reported, lags hours);
+RDS snapshots on the source instance's allocated storage (upper bound).
+
+**Known gap (ADR 0005, same treatment as Scope 3):** only the `us-east-1` base rates for
+`cw_logs` ($0.03/GB-mo) and `rds_snapshot` ($0.095/GB-mo) are verified against official AWS
+content. The other 8 regions are scaled by the `[snapshot]` regional factors as a first cut,
+marked `VERIFY` in the TOML — a per-region capture is outstanding, non-blocking.
 
 ## LocalStack harness (opt-in)
 
@@ -193,7 +211,12 @@ scan discovers regions itself. LocalStack/moto returns all ~34 as "enabled".)
   panel's **primary** figure (Probable + Confirmed) is `$0` — everything lands in the context
   figure. Seeing the primary figure populated needs scan history spread over days.
 - LocalStack/moto returns hundreds of canned AMI-backing snapshots, so the "orphan snapshots"
-  section is noisy — real AWS with `owner-ids self` would not be.
+  section is noisy — real AWS with `owner-ids self` would not be. Multi-region multiplies it
+  (thousands of rows); expected in the sim, not a bug.
+- LocalStack Community has **no `logs` and no `rds`**, so the CloudWatch Logs and RDS-snapshot
+  detectors error in every region there. Those errors fold into one collapsible block per detector
+  and the scan ends `partial` (seal on the header). Same shape a real account would show for a
+  missing IAM permission.
 - The permission audit degrades to "inconclusive" (LocalStack Community here runs only `ec2` +
   `sts`, no IAM). The connection still completes.
 
@@ -231,6 +254,11 @@ affordances (e.g. a `dev_force_reauth`) get removed at closure. Touch points:
   statements with `"Action": "*"` needs `iam:GetUserPolicy` / `iam:ListUserPolicies`, which are
   deliberately *not* in the minimal policy; `SimulatePrincipalPolicy` (the preferred path) already
   catches wildcard grants behaviourally.
+- The vault is **one store shared across windows / app runs**; each window keeps its own
+  `connection.state()` in memory. `AppComponent` runs `ConnectionStore.resync()` on `window:focus`
+  (and `scan-panel` before a scan) — it re-reads the vault via `connection_account` (no STS call)
+  and swaps the window's account in place (`connection/resynced`) or drops to onboarding if the
+  vault was cleared, so a drifted window can't show or scan for the wrong account.
 
 ### Scan & history (Scope 2)
 
@@ -253,6 +281,13 @@ affordances (e.g. a `dev_force_reauth`) get removed at closure. Touch points:
   scan on reload (backlog — see the Scope 4 report).
 - Dates cross the IPC as **unix seconds** (`i64` / `number`); the webview formats them
   (locale-aware, machine-local timezone).
+- **Five detectors** as of Scope 5 (ADR 0005): + CloudWatch Logs groups with no `retentionInDays`
+  (standard confidence scale, cost off `storedBytes`) and orphan **manual** RDS snapshots (snapshot
+  scale, cost off allocated storage). Automated RDS snapshots and Aurora DB-cluster snapshots are
+  out of scope (follow-up). `detector-section` folds a detector's `regionErrors` by message so a
+  systemic failure (a service off, a permission missing account-wide) is one collapsible block,
+  not N identical alert boxes; a finished `partial` scan shows a status seal on the account
+  header's bottom border.
 
 ### UI / platform
 

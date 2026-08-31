@@ -36,8 +36,12 @@ struct RawTable {
     ebs: HashMap<String, HashMap<String, f64>>,
     /// region -> USD per hour (idle address)
     elastic_ip: HashMap<String, f64>,
-    /// region -> USD per GB-month
+    /// region -> USD per GB-month (EBS snapshot stored data)
     snapshot: HashMap<String, f64>,
+    /// region -> USD per GB-month (CloudWatch Logs storage; ADR 0005 D3)
+    cw_logs: HashMap<String, f64>,
+    /// region -> USD per GB-month (RDS backup / snapshot storage)
+    rds_snapshot: HashMap<String, f64>,
 }
 
 struct PriceTable {
@@ -61,6 +65,12 @@ fn table() -> &'static PriceTable {
         for (region, p) in &raw.snapshot {
             assert!(*p > 0.0, "snapshot price {region} must be > 0");
         }
+        for (region, p) in &raw.cw_logs {
+            assert!(*p > 0.0, "cw_logs price {region} must be > 0");
+        }
+        for (region, p) in &raw.rds_snapshot {
+            assert!(*p > 0.0, "rds_snapshot price {region} must be > 0");
+        }
         PriceTable { raw }
     })
 }
@@ -76,6 +86,8 @@ pub fn estimate(rt: ResourceType, region: &str, facts: &Value) -> EstimatedCost 
         ResourceType::EbsVolume => estimate_ebs(region, facts),
         ResourceType::ElasticIp => estimate_eip(region),
         ResourceType::EbsSnapshot => estimate_snapshot(region, facts),
+        ResourceType::CloudwatchLogGroup => estimate_logs(region, facts),
+        ResourceType::RdsSnapshot => estimate_rds_snapshot(region, facts),
     }
 }
 
@@ -154,6 +166,42 @@ fn estimate_snapshot(region: &str, facts: &Value) -> EstimatedCost {
     }
 }
 
+fn estimate_logs(region: &str, facts: &Value) -> EstimatedCost {
+    let basis = CostBasis::LogsGbMonth;
+    // The API always returns `storedBytes` (0 for an empty / just-created group). A missing or
+    // zero value is an honest $0.00 estimate, not `MissingFact` — an empty retention-less group
+    // is still a real alert, just with no financial urgency (ADR 0005 D3).
+    let bytes = fact_f64(facts, "storedBytes").unwrap_or(0.0);
+    match table().raw.cw_logs.get(region) {
+        Some(price) => EstimatedCost {
+            // GB = 10^9 bytes — the unit the AWS pricing page states (ADR 0005 D3).
+            monthly_usd: Some(bytes / 1e9 * price),
+            basis,
+            qualifiers: vec![CostQualifier::LogsStorageOnly, CostQualifier::LogsSizeReported],
+            unavailable: None,
+        },
+        None => unavailable(basis, CostUnavailable::Region),
+    }
+}
+
+fn estimate_rds_snapshot(region: &str, facts: &Value) -> EstimatedCost {
+    let basis = CostBasis::RdsSnapshotGb;
+    let Some(gb) = fact_f64(facts, "allocatedStorageGb") else {
+        return unavailable(basis, CostUnavailable::MissingFact);
+    };
+    match table().raw.rds_snapshot.get(region) {
+        Some(price) => EstimatedCost {
+            monthly_usd: Some(gb * price),
+            basis,
+            // Priced on the source instance's allocated storage — an upper bound on the actual
+            // (incremental) backup size.
+            qualifiers: vec![CostQualifier::RdsSnapshotAllocatedSize],
+            unavailable: None,
+        },
+        None => unavailable(basis, CostUnavailable::Region),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -189,6 +237,8 @@ mod tests {
             }
             assert!(t.raw.elastic_ip.contains_key(r), "elastic_ip missing {r}");
             assert!(t.raw.snapshot.contains_key(r), "snapshot missing {r}");
+            assert!(t.raw.cw_logs.contains_key(r), "cw_logs missing {r}");
+            assert!(t.raw.rds_snapshot.contains_key(r), "rds_snapshot missing {r}");
         }
     }
 
@@ -231,6 +281,57 @@ mod tests {
         );
         approx(e.monthly_usd, 10.0); // 200 * 0.05
         assert!(e.qualifiers.contains(&CostQualifier::SnapshotFullVolumeSize));
+    }
+
+    #[test]
+    fn logs_priced_on_stored_bytes_storage_only() {
+        let e = estimate(
+            ResourceType::CloudwatchLogGroup,
+            "us-east-1",
+            &json!({ "storedBytes": 50_000_000_000_i64 }), // 50 GB
+        );
+        approx(e.monthly_usd, 50.0 * 0.03); // 50 GB * $0.03/GB-month
+        assert!(e.qualifiers.contains(&CostQualifier::LogsStorageOnly));
+        assert!(e.qualifiers.contains(&CostQualifier::LogsSizeReported));
+    }
+
+    #[test]
+    fn empty_log_group_is_priced_zero_not_unavailable() {
+        let e = estimate(ResourceType::CloudwatchLogGroup, "us-east-1", &json!({ "storedBytes": 0 }));
+        approx(e.monthly_usd, 0.0);
+        assert!(e.unavailable.is_none());
+
+        let missing = estimate(ResourceType::CloudwatchLogGroup, "us-east-1", &json!({}));
+        approx(missing.monthly_usd, 0.0);
+        assert!(missing.unavailable.is_none());
+    }
+
+    #[test]
+    fn rds_snapshot_priced_on_allocated_storage_and_flagged() {
+        let e = estimate(
+            ResourceType::RdsSnapshot,
+            "us-east-1",
+            &json!({ "allocatedStorageGb": 100 }),
+        );
+        approx(e.monthly_usd, 100.0 * 0.095);
+        assert!(e.qualifiers.contains(&CostQualifier::RdsSnapshotAllocatedSize));
+    }
+
+    #[test]
+    fn rds_snapshot_missing_size_is_unavailable() {
+        let e = estimate(ResourceType::RdsSnapshot, "us-east-1", &json!({ "engine": "postgres" }));
+        assert_eq!(e.unavailable, Some(CostUnavailable::MissingFact));
+    }
+
+    #[test]
+    fn logs_region_outside_the_table_is_unavailable() {
+        let e = estimate(
+            ResourceType::CloudwatchLogGroup,
+            "ca-central-1",
+            &json!({ "storedBytes": 10_000_000_000_i64 }),
+        );
+        assert!(e.monthly_usd.is_none());
+        assert_eq!(e.unavailable, Some(CostUnavailable::Region));
     }
 
     #[test]

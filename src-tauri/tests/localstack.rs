@@ -22,9 +22,8 @@ use cost_tracer_lib::model::{
 };
 use cost_tracer_lib::store::{Db, DetectorRegionError, RegionFinding};
 
-use aws_config::{BehaviorVersion, Region};
+use aws_config::{BehaviorVersion, Region, SdkConfig};
 use aws_sdk_ec2::config::Credentials;
-use aws_sdk_ec2::Client;
 
 const PRICED_REGION: &str = "sa-east-1";
 const UNPRICED_REGION: &str = "ca-central-1";
@@ -48,16 +47,15 @@ fn named<'a>(d: &'a DetectorResult, name: &str) -> &'a ResourceItem {
         .unwrap_or_else(|| panic!("no seeded item named {name}"))
 }
 
-async fn ec2(region: &str) -> Client {
+async fn cfg(region: &str) -> SdkConfig {
     let endpoint =
         std::env::var("AWS_ENDPOINT_URL").unwrap_or_else(|_| "http://localhost:4566".to_string());
-    let cfg = aws_config::defaults(BehaviorVersion::latest())
+    aws_config::defaults(BehaviorVersion::latest())
         .region(Region::new(region.to_string()))
         .endpoint_url(endpoint)
         .credentials_provider(Credentials::new("test", "test", None, None, "localstack"))
         .load()
-        .await;
-    Client::new(&cfg)
+        .await
 }
 
 #[tokio::test]
@@ -65,7 +63,15 @@ async fn ec2(region: &str) -> Client {
 async fn cost_pipeline_against_localstack() {
     let mut findings: Vec<RegionFinding> = Vec::new();
     for region in [PRICED_REGION, UNPRICED_REGION] {
-        let (region_findings, errs) = run_region(&ec2(region).await).await;
+        let (region_findings, mut errs) = run_region(&cfg(region).await).await;
+        // LocalStack Community has no CloudWatch Logs / RDS — those two detectors erroring here is
+        // expected and not what this harness checks (it's the Scope 3 EBS/EIP/snapshot cost path).
+        errs.retain(|(k, _)| {
+            !matches!(
+                k,
+                DetectorKind::LogGroupNoRetention | DetectorKind::OrphanRdsSnapshot
+            )
+        });
         assert!(errs.is_empty(), "{region}: detector errors: {errs:?}");
         for f in region_findings {
             findings.push(RegionFinding {

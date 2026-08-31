@@ -10,6 +10,19 @@ function ageInDays(unixSecs: number | null): number | null {
   return Math.max(0, Math.floor(Date.now() / 1000 / 86400 - unixSecs / 86400));
 }
 
+/** Compact size label — "0 B", "512 KB", "12.3 GB". Decimal units, matching AWS's GB. */
+function humanBytes(n: number): string {
+  if (n < 1000) return `${Math.round(n)} B`;
+  const units = ['KB', 'MB', 'GB', 'TB', 'PB'];
+  let v = n / 1000;
+  let i = 0;
+  while (v >= 1000 && i < units.length - 1) {
+    v /= 1000;
+    i += 1;
+  }
+  return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${units[i]}`;
+}
+
 /**
  * One resource in the inventory, compact — a header line (name · region · level · cost · action)
  * and a single dim detail line that folds the mandatory explanation, the facts, and any cost
@@ -214,6 +227,10 @@ export class ResourceRowComponent {
         return this.i18n.t('scan.explain.eip', { days, date: this.fmtDate(it.monitoredSince) });
       case 'ebs_snapshot':
         return this.i18n.t('scan.explain.snapshot', { days });
+      case 'cloudwatch_log_group':
+        return this.i18n.t('scan.explain.logGroup', { days });
+      case 'rds_snapshot':
+        return this.i18n.t('scan.explain.rdsSnapshot', { days });
       default:
         return null;
     }
@@ -234,6 +251,14 @@ export class ResourceRowComponent {
     } else if (it.resourceType === 'elastic_ip') {
       const ip = str('publicIp');
       if (ip) parts.push(ip);
+    } else if (it.resourceType === 'cloudwatch_log_group') {
+      const b = num('storedBytes');
+      if (b != null) parts.push(this.i18n.t('scan.fact.stored', { size: humanBytes(b) }));
+    } else if (it.resourceType === 'rds_snapshot') {
+      const g = num('allocatedStorageGb');
+      if (g != null) parts.push(this.i18n.t('scan.fact.size', { n: g }));
+      const eng = str('engine');
+      if (eng) parts.push(eng);
     } else {
       const s = num('sizeGiB');
       if (s != null) parts.push(this.i18n.t('scan.fact.size', { n: s }));

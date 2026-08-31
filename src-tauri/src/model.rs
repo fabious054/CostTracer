@@ -197,6 +197,8 @@ pub enum ResourceType {
     EbsVolume,
     ElasticIp,
     EbsSnapshot,
+    CloudwatchLogGroup,
+    RdsSnapshot,
 }
 
 impl ResourceType {
@@ -205,6 +207,8 @@ impl ResourceType {
             ResourceType::EbsVolume => "ebs_volume",
             ResourceType::ElasticIp => "elastic_ip",
             ResourceType::EbsSnapshot => "ebs_snapshot",
+            ResourceType::CloudwatchLogGroup => "cloudwatch_log_group",
+            ResourceType::RdsSnapshot => "rds_snapshot",
         }
     }
     pub fn from_db(s: &str) -> Option<Self> {
@@ -212,13 +216,16 @@ impl ResourceType {
             "ebs_volume" => Some(ResourceType::EbsVolume),
             "elastic_ip" => Some(ResourceType::ElasticIp),
             "ebs_snapshot" => Some(ResourceType::EbsSnapshot),
+            "cloudwatch_log_group" => Some(ResourceType::CloudwatchLogGroup),
+            "rds_snapshot" => Some(ResourceType::RdsSnapshot),
             _ => None,
         }
     }
-    /// Snapshots confirm on the slower scale (retention is commonly intentional).
+    /// Snapshots (EBS and RDS alike) confirm on the slower scale — backup retention is commonly
+    /// intentional (ADR 0005). Everything else uses the standard scale.
     pub fn confidence_scale(self) -> ConfidenceScale {
         match self {
-            ResourceType::EbsSnapshot => ConfidenceScale::Snapshot,
+            ResourceType::EbsSnapshot | ResourceType::RdsSnapshot => ConfidenceScale::Snapshot,
             _ => ConfidenceScale::Standard,
         }
     }
@@ -230,6 +237,8 @@ pub enum DetectorKind {
     EbsUnattached,
     ElasticIpIdle,
     OrphanSnapshot,
+    LogGroupNoRetention,
+    OrphanRdsSnapshot,
 }
 
 impl DetectorKind {
@@ -238,6 +247,8 @@ impl DetectorKind {
             DetectorKind::EbsUnattached => ResourceType::EbsVolume,
             DetectorKind::ElasticIpIdle => ResourceType::ElasticIp,
             DetectorKind::OrphanSnapshot => ResourceType::EbsSnapshot,
+            DetectorKind::LogGroupNoRetention => ResourceType::CloudwatchLogGroup,
+            DetectorKind::OrphanRdsSnapshot => ResourceType::RdsSnapshot,
         }
     }
     pub fn as_db(self) -> &'static str {
@@ -245,6 +256,8 @@ impl DetectorKind {
             DetectorKind::EbsUnattached => "ebs-unattached",
             DetectorKind::ElasticIpIdle => "elastic-ip-idle",
             DetectorKind::OrphanSnapshot => "orphan-snapshot",
+            DetectorKind::LogGroupNoRetention => "log-group-no-retention",
+            DetectorKind::OrphanRdsSnapshot => "orphan-rds-snapshot",
         }
     }
     pub fn from_db(s: &str) -> Option<Self> {
@@ -252,6 +265,8 @@ impl DetectorKind {
             "ebs-unattached" => Some(DetectorKind::EbsUnattached),
             "elastic-ip-idle" => Some(DetectorKind::ElasticIpIdle),
             "orphan-snapshot" => Some(DetectorKind::OrphanSnapshot),
+            "log-group-no-retention" => Some(DetectorKind::LogGroupNoRetention),
+            "orphan-rds-snapshot" => Some(DetectorKind::OrphanRdsSnapshot),
             _ => None,
         }
     }
@@ -361,6 +376,10 @@ pub enum CostBasis {
     EipFlat,
     /// EBS snapshot: source volume size (GiB) × $/GB-month.
     SnapshotGib,
+    /// CloudWatch Logs: stored bytes / 1e9 × $/GB-month (storage only, ADR 0005 D3).
+    LogsGbMonth,
+    /// RDS snapshot: source instance allocated storage (GB) × $/GB-month.
+    RdsSnapshotGb,
 }
 
 /// A machine-readable caveat on an estimate the webview renders as a short note.
@@ -373,6 +392,13 @@ pub enum CostQualifier {
     SnapshotFullVolumeSize,
     /// Unknown volume type — priced as gp3.
     EbsTypeAssumed,
+    /// CloudWatch Logs figure is storage only — ingestion (~$0.50/GB, one-off) is not counted.
+    LogsStorageOnly,
+    /// `storedBytes` is reported by AWS and updated periodically (lags real time by hours).
+    LogsSizeReported,
+    /// RDS snapshot priced on the source instance's allocated storage — an upper bound on the
+    /// actual (incremental) backup size.
+    RdsSnapshotAllocatedSize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
