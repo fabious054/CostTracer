@@ -73,11 +73,12 @@ const GLYPH: Record<RegionScanState | 'pending', string> = {
         background: var(--ct-panel);
       }
       /* Same treatment as the "approx FX" flag on the cost card — only the anchor differs:
-         it straddles the header's bottom border instead of the card's top border. */
+         it straddles the header's bottom border, centred, instead of the card's top border. */
       .status-flag {
         position: absolute;
         bottom: -8px;
-        left: 20px;
+        left: 50%;
+        transform: translateX(-50%);
         display: inline-flex;
         align-items: center;
         gap: 4px;
