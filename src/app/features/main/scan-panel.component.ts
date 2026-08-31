@@ -368,6 +368,8 @@ import { DetectorSectionComponent } from './detector-section.component';
         padding: 12px 14px;
         margin-bottom: 16px;
       }
+      /* A precision note, not an alert — kept visually quieter than the "partial scan" seal
+         (which stays on the alert colour). Neutral grey, no amber. */
       .acct-cost-flag {
         position: absolute;
         top: -8px;
@@ -378,8 +380,8 @@ import { DetectorSectionComponent } from './detector-section.component';
         padding: 1px 7px;
         border-radius: 999px;
         background: var(--ct-panel);
-        border: 1px solid var(--ct-warning-border, var(--ct-border-line));
-        color: var(--ct-warn);
+        border: 1px solid var(--ct-border-line);
+        color: var(--ct-text-dim);
         font-size: 9px;
         font-weight: 600;
         letter-spacing: 0.03em;
