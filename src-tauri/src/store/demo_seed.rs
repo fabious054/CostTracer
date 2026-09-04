@@ -329,3 +329,40 @@ pub fn seed(conn: &Connection, account_id: &str) -> AppResult<i64> {
 
     Ok(scan_id)
 }
+
+/// A synthetic price book for the "seed demo" fixture — plausible rates for the priced demo
+/// regions, and failure markers for the two the fixture puts in unpriced regions (so the demo
+/// exercises the "price lookup failed" row too). No network, no cache.
+pub fn demo_price_book() -> crate::pricing::PriceBook {
+    use crate::pricing::pricebook::{PriceBook, PriceEntry};
+
+    const PRICED: [&str; 9] = [
+        "us-east-1", "us-east-2", "us-west-1", "us-west-2", "eu-west-1", "eu-central-1",
+        "ap-southeast-1", "ap-northeast-1", "sa-east-1",
+    ];
+    const FAILED: [&str; 2] = ["ap-south-1", "ca-central-1"];
+    // (flat key, USD per unit) — one representative rate per priced line item.
+    const RATES: [(&str, f64); 11] = [
+        ("ebs:gp3", 0.08), ("ebs:gp2", 0.10), ("ebs:io1", 0.125), ("ebs:io2", 0.125),
+        ("ebs:st1", 0.045), ("ebs:sc1", 0.015), ("ebs:standard", 0.05),
+        ("eip:idle", 0.005), ("ebs:snapshot", 0.05), ("cwlogs:storage", 0.03), ("rds:backup", 0.095),
+    ];
+
+    let mut b = PriceBook::new();
+    for region in PRICED {
+        for (key, rate) in RATES {
+            b.insert(key, region, PriceEntry::Priced { usd_per_unit: rate, priced_at: None });
+        }
+    }
+    for region in FAILED {
+        for (key, _) in RATES {
+            b.insert(key, region, PriceEntry::Failed);
+        }
+    }
+    b.set_fx(crate::model::FxStatus {
+        rate: 5.18,
+        as_of: None,
+        state: crate::model::FxState::Fresh,
+    });
+    b
+}

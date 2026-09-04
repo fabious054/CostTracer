@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, HostListener, inject, OnInit } from
 import { isTauri } from '@tauri-apps/api/core';
 import { ConnectionStore } from './core/connection/connection.store';
 import { I18nService } from './core/i18n/i18n.service';
+import { PricingStore } from './core/pricing/pricing.store';
 import { OnboardingComponent } from './features/onboarding/onboarding.component';
 import { TitlebarComponent } from './features/shell/titlebar.component';
 
@@ -62,6 +63,7 @@ import { TitlebarComponent } from './features/shell/titlebar.component';
 })
 export class AppComponent implements OnInit {
   private readonly store = inject(ConnectionStore);
+  private readonly pricing = inject(PricingStore);
   protected readonly i18n = inject(I18nService);
 
   /** The webview is only functional inside the Tauri window (where the IPC bridge exists). */
@@ -70,18 +72,22 @@ export class AppComponent implements OnInit {
   ngOnInit(): void {
     if (this.inDesktopApp) {
       void this.store.boot();
+      // Kick the background price/FX refresher (ADR 0006). Idempotent core-side.
+      this.pricing.start();
     }
   }
 
   /**
    * Regaining focus is when a window is most likely to be out of step with the vault — another
    * window (or a `tauri dev` re-run) may have connected a different account while this one sat in
-   * the background. Reconcile before the user acts on stale data.
+   * the background. Reconcile before the user acts on stale data; also (re)kick the price
+   * refresher so a just-connected account starts warming without waiting for its tick.
    */
   @HostListener('window:focus')
   protected onFocus(): void {
     if (this.inDesktopApp) {
       void this.store.resync();
+      this.pricing.start();
     }
   }
 }

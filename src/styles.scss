@@ -27,6 +27,11 @@
   --ct-warn-bg: #fbf5e9;
   --ct-ok: #1a7f52;
 
+  /* advisory / passive-status notice — a calm accent tint, deliberately quieter than -warn */
+  --ct-notice-bg: #eef3fe;
+  --ct-notice-border: #d0e0fb;
+  --ct-notice-text: #33507e;
+
   --ct-radius: 6px;
   --ct-radius-sm: 4px;
 
@@ -69,6 +74,10 @@
     --ct-warn: #e0a944;
     --ct-warn-bg: #2a2214;
     --ct-ok: #46c07f;
+
+    --ct-notice-bg: #1b2740;
+    --ct-notice-border: #31456b;
+    --ct-notice-text: #bcd2f7;
 
     --ct-danger-border: #57302b;
     --ct-warning-border: #56471f;

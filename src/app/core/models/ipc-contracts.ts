@@ -68,6 +68,9 @@ export interface IpcCommandMap {
   scan_run: { args: undefined; result: import('./scan').ScanRunOutcome };
   scan_cancel: { args: undefined; result: void };
   scan_latest: { args: undefined; result: import('./scan').ScanResult | null };
+  /** Start the background price/FX refresher if it isn't running — idempotent (ADR 0006 D2b).
+   *  Returns whether a fetch cycle is running right now. */
+  pricing_refresh_start: { args: undefined; result: boolean };
   resource_mark_intentional: { args: { input: import('./scan').ResourceRef }; result: void };
   resource_unmark_intentional: { args: { input: import('./scan').ResourceRef }; result: void };
 

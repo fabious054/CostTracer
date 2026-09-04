@@ -1,8 +1,11 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, isDevMode } from '@angular/core';
 import { ConnectionStore } from '../../core/connection/connection.store';
 import { I18nService } from '../../core/i18n/i18n.service';
+import { PricingStore } from '../../core/pricing/pricing.store';
 import { ScanStore } from '../../core/scan/scan.store';
 import { RegionScanState } from '../../core/models/scan';
+import { FloatingNoticeComponent } from '../../shared/floating-notice.component';
+import { GearMenuComponent, GearMenuItem } from '../../shared/gear-menu.component';
 import { TooltipDirective } from '../../shared/tooltip.directive';
 import { ScanPanelComponent } from './scan-panel.component';
 
@@ -21,7 +24,7 @@ const GLYPH: Record<RegionScanState | 'pending', string> = {
 @Component({
   selector: 'ct-main-view',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ScanPanelComponent, TooltipDirective],
+  imports: [ScanPanelComponent, TooltipDirective, FloatingNoticeComponent, GearMenuComponent],
   template: `
     @if (account(); as a) {
       <header class="bar">
@@ -51,10 +54,23 @@ const GLYPH: Record<RegionScanState | 'pending', string> = {
             </span>
           }
         </div>
-        <button type="button" class="ct-btn ct-btn--ghost" (click)="disconnect()">
-          {{ i18n.t('account.disconnect') }}
-        </button>
+        <div class="bar-actions">
+          <button type="button" class="ct-btn ct-btn--ghost" (click)="disconnect()">
+            {{ i18n.t('account.disconnect') }}
+          </button>
+          <ct-gear-menu
+            [items]="menuItems()"
+            [label]="i18n.t('settings.menu')"
+            [emptyLabel]="i18n.t('settings.empty')"
+          />
+        </div>
       </header>
+
+      <!-- Background price/FX refresh (ADR 0006) — the standard floating notice, shown only
+           while fetching, so it never adds to the clutter in the scan/cost area. -->
+      @if (pricing.refreshing()) {
+        <ct-floating-notice [busy]="true">{{ i18n.t('pricing.refreshing') }}</ct-floating-notice>
+      }
 
       <main class="body">
         <ct-scan-panel />
@@ -119,8 +135,11 @@ const GLYPH: Record<RegionScanState | 'pending', string> = {
       .regions--unknown {
         color: var(--ct-warn);
       }
-      .bar .ct-btn {
+      .bar-actions {
         margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 8px;
       }
       .body {
         max-width: 640px;
@@ -136,6 +155,7 @@ const GLYPH: Record<RegionScanState | 'pending', string> = {
 })
 export class MainViewComponent {
   protected readonly i18n = inject(I18nService);
+  protected readonly pricing = inject(PricingStore);
   private readonly connection = inject(ConnectionStore);
   private readonly scan = inject(ScanStore);
 
@@ -163,4 +183,24 @@ export class MainViewComponent {
   protected disconnect(): void {
     void this.connection.disconnect();
   }
+
+  /**
+   * The header gear menu. The gear itself is permanent — it will hold real user settings later.
+   * For now its only entries are the two DEV-ONLY aids (fixture scan, pin the price strip),
+   * added only in a debug build; a release build shows the gear with an empty-state line.
+   */
+  protected readonly menuItems = computed<GearMenuItem[]>(() => {
+    const items: GearMenuItem[] = [];
+    // ── real user settings go here ──
+    if (isDevMode()) {
+      items.push(
+        { label: 'seed demo', run: () => void this.scan.seedDemo() },
+        {
+          label: this.pricing.pinned() ? 'unpin price strip' : 'pin price strip',
+          run: () => this.pricing.togglePinned(),
+        },
+      );
+    }
+    return items;
+  });
 }

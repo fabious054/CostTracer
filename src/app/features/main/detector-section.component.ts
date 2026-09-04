@@ -499,7 +499,7 @@ export class DetectorSectionComponent implements OnInit {
             amount: formatMoney(
               r.monthlyUsd,
               this.i18n.locale(),
-              this.store.result()?.fxUsdBrl ?? 0,
+              this.store.result()?.fx.rate ?? 0,
               false,
             ),
           })
@@ -574,7 +574,7 @@ export class DetectorSectionComponent implements OnInit {
     const amount = formatMoney(
       g.subtotalUsd,
       this.i18n.locale(),
-      this.store.result()?.fxUsdBrl ?? 0,
+      this.store.result()?.fx.rate ?? 0,
       false,
     );
     return this.i18n.t('cost.perMonth', { amount });

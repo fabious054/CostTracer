@@ -17,10 +17,28 @@
 
 use cost_tracer_lib::detectors::run_region;
 use cost_tracer_lib::model::{
-    ConfidenceLevel, CostUnavailable, DetectorKind, DetectorResult, ResourceItem, ScanResult,
-    ScanStatus,
+    ConfidenceLevel, CostUnavailable, DetectorKind, DetectorResult, FxState, FxStatus, ResourceItem,
+    ScanResult, ScanStatus,
 };
+use cost_tracer_lib::pricing::pricebook::{PriceBook, PriceEntry};
 use cost_tracer_lib::store::{Db, DetectorRegionError, RegionFinding};
+
+/// A hand-built price snapshot (Scope 6 — LocalStack has no Price List API). Priced in
+/// `sa-east-1`, a failure marker in `ca-central-1` to exercise the "lookup failed" path.
+fn fixture_book() -> PriceBook {
+    let mut b = PriceBook::new();
+    let priced = |b: &mut PriceBook, key: &str, rate: f64| {
+        b.insert(key, PRICED_REGION, PriceEntry::Priced { usd_per_unit: rate, priced_at: None });
+        b.insert(key, UNPRICED_REGION, PriceEntry::Failed);
+    };
+    priced(&mut b, "ebs:gp3", 0.1276);
+    priced(&mut b, "eip:idle", 0.005);
+    priced(&mut b, "ebs:snapshot", 0.0684);
+    priced(&mut b, "cwlogs:storage", 0.03);
+    priced(&mut b, "rds:backup", 0.095);
+    b.set_fx(FxStatus { rate: 5.18, as_of: None, state: FxState::Fresh });
+    b
+}
 
 use aws_config::{BehaviorVersion, Region, SdkConfig};
 use aws_sdk_ec2::config::Credentials;
@@ -98,11 +116,11 @@ async fn cost_pipeline_against_localstack() {
         )
         .expect("record scan");
     let result = db
-        .build_scan_result(scan_id, "acct-localstack")
+        .build_scan_result(scan_id, "acct-localstack", &fixture_book())
         .expect("build scan result");
     let _ = std::fs::remove_file(&path);
 
-    assert!(result.fx_usd_brl > 0.0, "fx rate should be present");
+    assert!(result.fx.rate > 0.0, "fx rate should be present");
 
     // --- EBS: priced sa-east-1 gp3, 500 GiB (moto seeds no volumes, so this detector is clean) ---
     let ebs = detector(&result, DetectorKind::EbsUnattached);
@@ -110,12 +128,12 @@ async fn cost_pipeline_against_localstack() {
     assert_eq!(priced.region, PRICED_REGION);
     approx(priced.estimated_cost.as_ref().unwrap().monthly_usd, 500.0 * 0.1276);
 
-    // --- EBS: region not in the price table -> unavailable, never approximated ---
+    // --- EBS: a failure marker in the cache -> unavailable, never approximated ---
     let unpriced = named(ebs, "ct-unpriced");
     assert_eq!(unpriced.region, UNPRICED_REGION);
     let ec = unpriced.estimated_cost.as_ref().unwrap();
     assert!(ec.monthly_usd.is_none());
-    assert_eq!(ec.unavailable, Some(CostUnavailable::Region));
+    assert_eq!(ec.unavailable, Some(CostUnavailable::PriceUnavailable));
 
     assert_eq!(ebs.cost_rollup.priced_count, 1);
     assert_eq!(ebs.cost_rollup.unpriced_count, 1);

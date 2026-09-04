@@ -1,6 +1,6 @@
 [package]
 name = "cost-tracer"
-version = "0.5.0"
+version = "0.6.0"
 description = "Local-first AWS cost visibility tool"
 authors = ["CostTracer contributors"]
 edition = "2021"
@@ -27,10 +27,11 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"
 tokio-util = { version = "0.7", default-features = false }
 dirs = "5"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
-# Scope 2 scan-history store (ADR 0002). `bundled` = SQLite compiled from source, no system dep.
+# Scope 2 scan-history store (ADR 0002) + Scope 6 pricing cache (ADR 0006). `bundled` = SQLite
+# compiled from source, no system dep.
 rusqlite = { version = "0.32", features = ["bundled"] }
-# Scope 3 fixed price table (ADR 0003 D1) — parsed once from an embedded TOML string.
-toml = "0.8"
+# Scope 6 (ADR 0006 D1) — the one non-AWS call: an anonymous USD→BRL lookup to api.frankfurter.dev.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 
 aws-config = { version = "1", features = ["behavior-version-latest"] }
 aws-credential-types = { version = "1", features = ["hardcoded-credentials"] }
@@ -41,6 +42,7 @@ aws-sdk-iam = "1"
 aws-sdk-ec2 = "1"
 aws-sdk-cloudwatchlogs = "1"
 aws-sdk-rds = "1"
+aws-sdk-pricing = "1"
 aws-sdk-sso = "1"
 aws-sdk-ssooidc = "1"
 

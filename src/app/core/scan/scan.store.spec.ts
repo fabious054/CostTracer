@@ -75,6 +75,7 @@ function alertingVolume(): ResourceItem {
       basis: 'ebs-gib',
       qualifiers: [],
       unavailable: null,
+      pricedAt: null,
     },
     facts: { sizeGiB: 100 },
   };
@@ -96,7 +97,7 @@ function result(items: ResourceItem[]): ScanResult {
       { kind: 'orphan-snapshot', regionErrors: [], items: [], costRollup: { ...noRollup } },
     ],
     costRollup: { primaryMonthlyUsd: 0, contextMonthlyUsd: 0, unpricedCount: 0 },
-    fxUsdBrl: 5.4,
+    fx: { rate: 5.4, asOf: null, state: 'fresh' },
   };
 }
 

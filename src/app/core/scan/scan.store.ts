@@ -2,6 +2,7 @@ import { computed, effect, inject, Injectable, signal } from '@angular/core';
 import { ConnectionStore } from '../connection/connection.store';
 import { TauriEventsService } from '../events/tauri-events.service';
 import { TauriIpcService } from '../ipc/tauri-ipc.service';
+import { PricingStore } from '../pricing/pricing.store';
 import {
   AccountCostRollup,
   DetectorCostRollup,
@@ -44,7 +45,7 @@ function mergeRegion(prev: ScanResult, ev: ScanRegionEvent): ScanResult {
   });
 
   return {
-    ...ev.result, // scanId / startedAt / fxUsdBrl / status / regions come from the running scan
+    ...ev.result, // scanId / startedAt / fx / status / regions come from the running scan
     detectors,
     costRollup: accountRollup(detectors),
   };
@@ -112,6 +113,7 @@ export class ScanStore {
   private readonly ipc = inject(TauriIpcService);
   private readonly events = inject(TauriEventsService);
   private readonly connection = inject(ConnectionStore);
+  private readonly pricing = inject(PricingStore);
 
   private readonly _phase = signal<ScanPhase>('idle');
   private readonly _result = signal<ScanResult | null>(null);
@@ -143,6 +145,9 @@ export class ScanStore {
   /** The account the store is currently bound to — `undefined` until the effect first runs. */
   private boundAccount: string | null | undefined = undefined;
 
+  /** Last seen value of `pricing.refreshing()` — to detect the true→false edge. */
+  private pricingWasRefreshing = false;
+
   constructor() {
     // The scan result is per-account. Bind the store to the connected account so switching
     // accounts — or disconnecting — always reloads that account's history and never leaves a
@@ -160,6 +165,18 @@ export class ScanStore {
       } else if (this._phase() === 'idle' && this._result() === null) {
         // Initial bind on a pristine store — the app just connected; pull this account's history.
         void this.loadLatest();
+      }
+    });
+
+    // The background price refresher just went idle — re-pull the on-screen scan so figures that
+    // showed "price pending" pick up the freshly-cached prices, with no manual re-scan. The scan
+    // itself still never waits on the refresher (ADR 0006 D2); this is a passive catch-up.
+    effect(() => {
+      const refreshing = this.pricing.refreshing();
+      const finished = this.pricingWasRefreshing && !refreshing;
+      this.pricingWasRefreshing = refreshing;
+      if (finished && this._phase() === 'idle' && this._result()) {
+        void this.refreshCosts();
       }
     });
   }
@@ -184,6 +201,28 @@ export class ScanStore {
     }
   }
 
+  /**
+   * Re-read the latest stored scan (same inventory, same `scanId`) so its cost figures reflect
+   * the current price cache. Unlike `loadLatest` there's no `reset()` — only `estimatedCost` and
+   * `costRollup` change, so the UI just swaps the numbers in. Safe to call when nothing changed.
+   */
+  async refreshCosts(): Promise<void> {
+    if (this._phase() !== 'idle' || !this._result()) return;
+    try {
+      const latest = await this.ipc.call('scan_latest');
+      if (latest) this._result.set(latest);
+    } catch {
+      /* store unavailable — keep the figures we have */
+    }
+  }
+
+  /** Any flagged resource still waiting on a background price fetch. */
+  private hasPendingCosts(r: ScanResult): boolean {
+    return r.detectors.some((d) =>
+      d.items.some((i) => i.estimatedCost?.unavailable === 'price-pending'),
+    );
+  }
+
   async run(): Promise<void> {
     this._phase.set('scanning');
     this._error.set(null);
@@ -200,6 +239,9 @@ export class ScanStore {
       this._result.set(outcome.result);
       this._scanStatus.set(outcome.result.status);
       this.finish();
+      // Cold-cache first run: prices may have landed while the scan ran. Catch up now; if the
+      // refresher is still working, its idle event will trigger another pass (see the effect).
+      if (this.hasPendingCosts(outcome.result)) void this.refreshCosts();
     } catch (e) {
       this._error.set(errMsg(e));
       this._phase.set('error');

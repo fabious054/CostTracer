@@ -138,6 +138,8 @@ const EN = {
   'account.signedInAs': 'Signed in as',
   'account.via': 'Via',
   'account.disconnect': 'Disconnect',
+  'settings.menu': 'Settings',
+  'settings.empty': 'No settings yet',
 
   // scan (Scope 2)
   'scan.accountBar': 'Account {account}',
@@ -210,8 +212,11 @@ const EN = {
   // estimated cost (Scope 3 — copy is rough, to be tuned on screen)
   'cost.perResource': 'Est. {amount}/mo — projection from the resource, not billed usage',
   'cost.perMonth': '~{amount}/mo',
-  'cost.unavailable': 'No price on file for {region} yet — counted separately',
-  'cost.unavailableShort': 'no price for {region}',
+  'cost.stale': 'Est. {amount}/mo — price cached {date}; the AWS Price List API is unavailable right now',
+  'cost.pending': "Price not available yet — a background update is fetching it. It'll show on the next scan.",
+  'cost.pendingShort': 'price pending',
+  'cost.unavailable': "Couldn't get a price from the AWS Price List API for this resource — counted separately",
+  'cost.unavailableShort': 'price unavailable',
   'cost.qualifier.ebs-iops-not-included': 'excludes provisioned IOPS/throughput',
   'cost.qualifier.snapshot-full-volume-size': 'based on full volume size; actual stored size is usually lower',
   'cost.qualifier.ebs-type-assumed': 'volume type not on file — priced as gp3',
@@ -221,16 +226,20 @@ const EN = {
     "based on the instance's allocated storage; actual backup size is usually lower",
   'cost.detectorAmount': 'Est. {amount}/mo',
   'cost.detectorCount': 'across {count} flagged',
-  'cost.unpricedTag': 'unpriced',
-  'cost.unpricedHint': '{count} flagged resource(s) in a region the price table does not cover — counted separately, not in the total',
-  'cost.unpricedGlobal': "{count} flagged resource(s) sit in regions the price table doesn't cover yet: {regions}. Add them to price-table.toml to fold them into the totals.",
+  'cost.unpricedTag': 'no price',
+  'cost.unpricedHint': "{count} flagged resource(s) have no usable price — the AWS Price List API didn't return one. Counted separately, not in the total.",
+  'cost.unpricedGlobal': "{count} flagged resource(s) have no usable price (regions: {regions}) — the AWS Price List API returned nothing for them. Counted separately, not in the total.",
+  'pricing.refreshing': 'Updating prices in the background…',
   'cost.account.title': 'Estimated monthly cost of flagged resources',
   'cost.account.primary': '{amount}/mo',
   'cost.account.primaryLabel': 'Probable + Confirmed',
   'cost.account.context': '+{amount}/mo',
   'cost.account.contextLabel': 'more in Observed + Persisting',
   'cost.approxFlag': 'approx. rate',
-  'cost.approxNote': 'BRL is an approximate conversion at a fixed rate',
+  'cost.approxNote':
+    'BRL converted at the European Central Bank reference rate (api.frankfurter.dev), fetched {date}',
+  'cost.approxNoteStale':
+    'BRL converted at the European Central Bank reference rate (api.frankfurter.dev), last fetched {date} — a background refresh is pending',
 
   // shared
   'common.copied': 'Copied',
@@ -373,6 +382,8 @@ const PT: Record<MessageKey, string> = {
   'account.signedInAs': 'Conectado como',
   'account.via': 'Via',
   'account.disconnect': 'Desconectar',
+  'settings.menu': 'Configurações',
+  'settings.empty': 'Nenhuma configuração ainda',
 
   // scan (Escopo 2)
   'scan.accountBar': 'Conta {account}',
@@ -445,8 +456,11 @@ const PT: Record<MessageKey, string> = {
   // custo estimado (Escopo 3 — texto provisório, a refinar em tela)
   'cost.perResource': 'Est. {amount}/mês — projeção a partir do recurso, não consumo faturado',
   'cost.perMonth': '~{amount}/mês',
-  'cost.unavailable': 'Ainda sem preço cadastrado para {region} — contabilizado à parte',
-  'cost.unavailableShort': 'sem preço p/ {region}',
+  'cost.stale': 'Est. {amount}/mês — preço em cache de {date}; a AWS Price List API está indisponível no momento',
+  'cost.pending': 'Preço ainda não disponível — uma atualização em segundo plano está buscando. Aparece no próximo scan.',
+  'cost.pendingShort': 'preço pendente',
+  'cost.unavailable': 'Não foi possível obter um preço da AWS Price List API para este recurso — contabilizado à parte',
+  'cost.unavailableShort': 'sem preço',
   'cost.qualifier.ebs-iops-not-included': 'não inclui IOPS/throughput provisionados',
   'cost.qualifier.snapshot-full-volume-size': 'com base no tamanho total do volume; o tamanho armazenado real costuma ser menor',
   'cost.qualifier.ebs-type-assumed': 'tipo de volume não cadastrado — precificado como gp3',
@@ -457,15 +471,19 @@ const PT: Record<MessageKey, string> = {
   'cost.detectorAmount': 'Est. {amount}/mês',
   'cost.detectorCount': 'em {count} sinalizado(s)',
   'cost.unpricedTag': 'sem preço',
-  'cost.unpricedHint': '{count} recurso(s) sinalizado(s) em região que a tabela de preços não cobre — contabilizados à parte, fora do total',
-  'cost.unpricedGlobal': '{count} recurso(s) sinalizado(s) estão em regiões que a tabela de preços ainda não cobre: {regions}. Adicione-as ao price-table.toml para incluí-los nos totais.',
+  'cost.unpricedHint': '{count} recurso(s) sinalizado(s) sem preço utilizável — a AWS Price List API não retornou um. Contabilizados à parte, fora do total.',
+  'cost.unpricedGlobal': '{count} recurso(s) sinalizado(s) sem preço utilizável (regiões: {regions}) — a AWS Price List API não retornou nada para eles. Contabilizados à parte, fora do total.',
+  'pricing.refreshing': 'Atualizando preços em segundo plano…',
   'cost.account.title': 'Custo mensal estimado dos recursos sinalizados',
   'cost.account.primary': '{amount}/mês',
   'cost.account.primaryLabel': 'Provável + Confirmado',
   'cost.account.context': '+{amount}/mês',
   'cost.account.contextLabel': 'a mais em Observado + Persistindo',
   'cost.approxFlag': 'câmbio aproximado',
-  'cost.approxNote': 'O valor em BRL é uma conversão aproximada por taxa fixa',
+  'cost.approxNote':
+    'Valor em BRL convertido pela taxa de referência do Banco Central Europeu (api.frankfurter.dev), obtida em {date}',
+  'cost.approxNoteStale':
+    'Valor em BRL convertido pela taxa de referência do Banco Central Europeu (api.frankfurter.dev), obtida pela última vez em {date} — atualização em segundo plano pendente',
 
   'common.copied': 'Copiado',
   'common.back': 'Voltar',

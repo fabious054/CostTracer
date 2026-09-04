@@ -363,9 +363,9 @@ pub struct RegionError {
     pub message: String,
 }
 
-// --- Scope 3 — estimated cost (ADR 0003) -----------------------------------
-// The core produces USD figures + the unpriced counts; the webview does the USD→BRL display
-// (fixed rate in `ScanResult.fx_usd_brl`), formatting, and the caveat copy.
+// --- Scope 3 — estimated cost (ADR 0003; source migrated in Scope 6, ADR 0006) --------------
+// The core produces USD figures + the counts; the webview formats them and does the USD→BRL
+// display. Since Scope 6 the rate comes from `ScanResult.fx` (Frankfurter, cached), not a table.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -404,10 +404,13 @@ pub enum CostQualifier {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CostUnavailable {
-    /// The resource's region is not in the fixed price table.
-    Region,
     /// A fact needed for the estimate (e.g. size) was missing from the scan.
     MissingFact,
+    /// The price cache has no row yet for this (resource, region) — the background refresher
+    /// hasn't fetched it, or is fetching it right now. Not an error (ADR 0006 D2e).
+    PricePending,
+    /// The background refresher tried the Price List API and got nothing back (failure marker).
+    PriceUnavailable,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -418,6 +421,9 @@ pub struct EstimatedCost {
     pub basis: CostBasis,
     pub qualifiers: Vec<CostQualifier>,
     pub unavailable: Option<CostUnavailable>,
+    /// Set only when the price used came from an **expired** cache entry (unix seconds of its
+    /// `fetched_at`) — drives a "price cached {date}" note. `None` for a fresh value (ADR 0006).
+    pub priced_at: Option<i64>,
 }
 
 /// Per-detector total — over alerting, non-intentional resources only.
@@ -469,6 +475,30 @@ pub struct DetectorResult {
     pub cost_rollup: DetectorCostRollup,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum FxState {
+    /// Rate from a cache entry younger than the 5-hour window.
+    Fresh,
+    /// Rate from an expired cache entry (Frankfurter unreachable) — `as_of` says when.
+    Stale,
+    /// No cache row yet — the refresher hasn't fetched it.
+    Pending,
+    /// The refresher tried Frankfurter and got nothing (failure marker).
+    Unavailable,
+}
+
+/// USD→BRL rate for the webview's pt-only BRL display (ADR 0006 D2e). `rate == 0.0` for
+/// `Pending` / `Unavailable` — the webview shows USD only then.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FxStatus {
+    pub rate: f64,
+    /// Unix seconds of the cache entry's `fetched_at`; `Some` only when `state` is `Stale`.
+    pub as_of: Option<i64>,
+    pub state: FxState,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanResult {
@@ -480,8 +510,8 @@ pub struct ScanResult {
     pub status: ScanStatus,
     pub detectors: Vec<DetectorResult>,
     pub cost_rollup: AccountCostRollup,
-    /// Fixed USD→BRL rate from the price table (placeholder value; UI labels it approximate).
-    pub fx_usd_brl: f64,
+    /// USD→BRL rate + freshness (ADR 0006). Replaces the old fixed `fx_usd_brl`.
+    pub fx: FxStatus,
 }
 
 #[derive(Debug, Serialize)]
@@ -523,6 +553,16 @@ pub struct ScanRegionEvent {
 pub struct ScanDoneEvent {
     pub scan_id: i64,
     pub status: ScanStatus,
+}
+
+// --- Scope 6 — background price/FX refresher events (ADR 0006 D2b) ----------
+// `pricing://refreshing` (carries how many entries are being fetched) while the refresher is
+// actively fetching; `pricing://idle` (unit payload) when there is nothing left to fetch.
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PricingRefreshingEvent {
+    pub pending: u32,
 }
 
 #[derive(Debug, Deserialize)]

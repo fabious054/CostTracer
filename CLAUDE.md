@@ -148,6 +148,13 @@ Antes de considerar um escopo formalmente fechado (commit + tag), sempre nessa o
    (`#[cfg(debug_assertions)]` + `isDevMode()`), marcada `DEV-ONLY`, e **nunca aparece em build de
    produção**. Não faz parte da checklist de remoção. Se um dia isso mudar de ideia (ex.: virar
    feature pública de demonstração), isso exige nova decisão de produto, não é automático.
+   **Exceção 2: `src-tauri/tests/price_probe.rs` (Escopo 6).** Harness de diagnóstico dos filtros
+   `GetProducts` da AWS Price List API — lê a credencial do cofre do SO e faz chamadas reais,
+   então fica sob `#[ignore]` permanentemente: nunca roda em CI nem em `cargo test` normal, só sob
+   demanda manual (`cargo test --test price_probe -- --ignored --nocapture`). Mantido no
+   repositório como ferramenta pronta pra quando um detector novo com custo precisar descobrir o
+   `productFamily`/`group`/`usagetype` certo contra a API real — documentado em
+   `docs/development.md`. Não faz parte da checklist de remoção.
 3. `docs/iam-policy-minimal.json` revisado — nenhuma permissão nova sem uso real, nenhuma faltando.
 4. **`README.md`, `README.pt-BR.md` e `docs/development.md` atualizados** — Status, Roadmap (fase
    atual e o que já saiu dela), a seção "Layout" de `development.md` (estrutura de pastas real,

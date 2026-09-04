@@ -4,13 +4,14 @@
 
 > Local-first AWS cost visibility tool. Tracks idle resources over time to confirm real waste — read-only, no credentials ever leave your machine.
 
-🚧 **Status:** **Phases 0 and 1 complete.** Five scopes are closed and tagged:
+🚧 **Status:** **Phases 0 and 1 complete**, plus one post-Phase-1 solidification scope. Six scopes are closed and tagged:
 
 - **`v0.1.0-scope1` — AWS connection flow.** Connect via auto-detected local AWS config, manual access-key entry, or IAM Identity Center (SSO) device authorization. Every identity is screened for over-broad permissions before use; credentials are stored in the OS-native vault, never in plain text.
 - **`v0.2.0-scope2` — Idle-resource detectors.** Unattached EBS volumes, idle Elastic IPs, and orphan snapshots, with a local scan history (SQLite) and a four-level confidence scale (Observed → Persisting → Probable → Confirmed) that rises the longer a resource stays idle across scans. Every flagged resource carries a plain-language explanation; any resource can be marked *intentional* — a local-only flag, the tool never writes to AWS.
 - **`v0.3.0-scope3` — Estimated cost.** Every flagged resource shows an estimated monthly cost from a fixed local price table (nine regions), rolled up per detector and per account. Primary in USD; in Portuguese an approximate BRL follows at a fixed rate. Resources in a region the table doesn't cover are counted separately, never approximated. No AWS Price List API call.
 - **`v0.4.0-scope4` — Multi-region coverage** *(first scope of Phase 1)*. A scan discovers the account's enabled regions itself (`ec2:DescribeRegions`) and checks every one — no manual region choice. It runs region by region, showing results as each finishes and letting you cancel mid-run; regions already done stay saved. When the connected credential can't list regions, the tool says so plainly and doesn't guess a count or run a pointless scan.
 - **`v0.5.0-scope5` — Two more detectors.** CloudWatch Logs groups with no retention policy (AWS keeps logs forever by default) and orphan RDS snapshots (a manual DB snapshot whose source instance is gone). Both plug into the existing history, confidence scale, and cost rollups. An empty log group still shows an honest `$0.00/mo` — flagged because hundreds of them are a signal, not hidden because one is cheap.
+- **`v0.6.0-scope6` — Live pricing** *(solidification, not part of a numbered phase)*. The fixed local price table is gone; every price now comes from the **AWS Price List API**, covering every enabled region instead of nine, cached locally (`pricing-cache.sqlite3`, 3-day window) by a background refresher that never blocks a scan — a scan only ever reads whatever is already cached. The USD→BRL rate is now looked up too (5-hour window, European Central Bank reference rate via `api.frankfurter.dev` — see Security Model). An expired cache still serves its last value, showing when it was fetched; a genuine lookup failure is counted separately, same as before.
 
 These tags mark closed scopes, not packaged downloads — there is no installer yet. Run from source: `npm install`, then `npm run tauri:dev`. Phase 2 is next (see Roadmap).
 
@@ -24,7 +25,7 @@ Most existing tools require pasting AWS credentials into a third-party web platf
 
 ## The Solution
 
-CostTracer is a desktop application that audits your AWS account for idle and wasteful resources, running **100% locally** on your machine. It inspects your account, flags likely waste, **estimates its monthly cost** from a fixed local price table, and — critically — **confirms that waste over time** before you ever act on it. No credential, no account data, and no telemetry ever leaves your computer.
+CostTracer is a desktop application that audits your AWS account for idle and wasteful resources, running **100% locally** on your machine. It inspects your account, flags likely waste, **estimates its monthly cost** from the AWS Price List API (cached locally, refreshed in the background), and — critically — **confirms that waste over time** before you ever act on it. No credential, no account data, and no telemetry ever leaves your computer.
 
 ### The three pillars
 
@@ -56,6 +57,8 @@ Most tools in this space only do #1. CostTracer is designed around all three fro
 - **Phase 1 — Reliability & coverage** *(complete)*: multi-region support, more resource types, and an exception system to reduce false positives (✅ local "mark as intentional" since Scope 2, never writes to AWS; recognising existing AWS tags was evaluated and deliberately deferred to preserve the "connect and it works, no prior setup in your account" pitch — product backlog).
   - ✅ Multi-region coverage — auto-discovered regions, progressive region-by-region scan, cancellable — `v0.4.0-scope4`
   - ✅ CloudWatch Logs (no retention) + orphan RDS snapshot detectors — `v0.5.0-scope5`
+- **Post-Phase-1 solidification** *(not a numbered phase)*: closing technical debt the fixed price table had reached its limits on.
+  - ✅ AWS Price List API + local cache, replacing the fixed table; every enabled region priced, not just nine — `v0.6.0-scope6`
 - **Phase 2 — Assisted action**: opt-in dry-run simulation and, eventually, guarded execution — starting only with the resource types the confidence layer trusts most.
 - **Phase 3 — Multi-account**: relevant for organizations using AWS Organizations; not a near-term priority.
 
@@ -67,6 +70,7 @@ CostTracer follows a zero-trust-by-design approach:
 - Validates the connected identity via `sts:GetCallerIdentity`.
 - Checks for over-privileged credentials and warns the user, offering a minimal-permission IAM policy to copy and apply instead.
 - Stores any credential in the OS-native secure vault (Keychain / Credential Manager / Secret Service) — never in plain text.
+- Every network call goes to an AWS domain, with one disclosed exception: the USD→BRL exchange rate, which AWS doesn't offer, is fetched from [Frankfurter](https://www.frankfurter.dev/) (`api.frankfurter.dev`), an open-source, key-free service serving the European Central Bank's reference rate. No credential, account data, or identifying information is ever sent to it — just the currency pair.
 
 ## License
 

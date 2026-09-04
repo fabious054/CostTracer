@@ -4,13 +4,14 @@
 
 > Ferramenta local-first de visibilidade de custos AWS. Rastreia recursos ociosos ao longo do tempo para confirmar desperdício real — somente leitura, nenhuma credencial sai da sua máquina.
 
-🚧 **Status:** **Fases 0 e 1 concluídas.** Cinco escopos estão fechados e com tag:
+🚧 **Status:** **Fases 0 e 1 concluídas**, mais um escopo de solidificação pós-Fase-1. Seis escopos estão fechados e com tag:
 
 - **`v0.1.0-scope1` — Fluxo de conexão com a AWS.** Conexão via configuração AWS local detectada automaticamente, entrada manual de access key, ou autorização por dispositivo do IAM Identity Center (SSO). Toda identidade é verificada quanto a permissões excessivas antes do uso; credenciais ficam no cofre nativo do sistema, nunca em texto plano.
 - **`v0.2.0-scope2` — Detectores de recursos ociosos.** Volumes EBS não anexados, Elastic IPs ociosos e snapshots órfãos, com histórico local de scans (SQLite) e uma escala de confiança de quatro níveis (Observado → Persistindo → Provável → Confirmado) que sobe quanto mais tempo um recurso permanece ocioso ao longo dos scans. Todo recurso sinalizado traz uma explicação em linguagem clara; qualquer recurso pode ser marcado como *intencional* — um marcador puramente local, a ferramenta nunca escreve na AWS.
 - **`v0.3.0-scope3` — Custo estimado.** Todo recurso sinalizado mostra um custo mensal estimado a partir de uma tabela de preços fixa e local (nove regiões), somado por detector e por conta. Primário em USD; em português segue um BRL aproximado por taxa fixa. Recursos numa região que a tabela não cobre são contabilizados à parte, nunca aproximados. Sem chamada à AWS Price List API.
 - **`v0.4.0-scope4` — Cobertura multi-região** *(primeiro escopo da Fase 1)*. O scan descobre sozinho as regiões habilitadas da conta (`ec2:DescribeRegions`) e verifica todas — sem escolha manual de região. Roda região a região, mostrando os resultados conforme cada uma termina e permitindo cancelar no meio; regiões já concluídas ficam salvas. Quando a credencial conectada não consegue listar as regiões, a ferramenta diz isso claramente e não chuta uma contagem nem roda um scan inútil.
 - **`v0.5.0-scope5` — Mais dois detectores.** Log Groups do CloudWatch sem política de retenção (a AWS guarda logs para sempre por padrão) e snapshots de RDS órfãos (um snapshot manual cuja instância de origem não existe mais). Os dois entram no histórico, na escala de confiança e nas somas de custo já existentes. Um Log Group vazio ainda mostra um `$0.00/mês` honesto — sinalizado porque centenas deles são um sintoma, não escondido porque um é barato.
+- **`v0.6.0-scope6` — Preços ao vivo** *(solidificação, sem número de fase)*. A tabela de preços fixa e local saiu de cena; todo preço agora vem da **AWS Price List API**, cobrindo toda região habilitada em vez de só nove, cacheado localmente (`pricing-cache.sqlite3`, janela de 3 dias) por um processo de fundo que nunca bloqueia um scan — o scan só lê o que já está em cache. A taxa USD→BRL também passou a ser buscada (janela de 5 horas, taxa de referência do Banco Central Europeu via `api.frankfurter.dev` — ver Modelo de Segurança). Um cache vencido ainda serve o último valor, mostrando quando foi buscado; uma falha de busca genuína é contabilizada à parte, como antes.
 
 Essas tags marcam escopos fechados, não downloads empacotados — ainda não há instalador. Rode a partir do código: `npm install` e depois `npm run tauri:dev`. A Fase 2 é a próxima (ver Roadmap).
 
@@ -24,7 +25,7 @@ A maioria das ferramentas existentes exige colar credenciais AWS numa plataforma
 
 ## A Solução
 
-O CostTracer é uma aplicação desktop que audita sua conta AWS em busca de recursos ociosos e desperdício, rodando **100% localmente** na sua máquina. Ele inspeciona sua conta, sinaliza possíveis desperdícios, **estima o custo mensal** a partir de uma tabela de preços fixa e local e — o mais importante — **confirma esse desperdício ao longo do tempo** antes de você agir sobre ele. Nenhuma credencial, dado de conta ou telemetria sai do seu computador.
+O CostTracer é uma aplicação desktop que audita sua conta AWS em busca de recursos ociosos e desperdício, rodando **100% localmente** na sua máquina. Ele inspeciona sua conta, sinaliza possíveis desperdícios, **estima o custo mensal** a partir da AWS Price List API (cacheada localmente, atualizada em segundo plano) e — o mais importante — **confirma esse desperdício ao longo do tempo** antes de você agir sobre ele. Nenhuma credencial, dado de conta ou telemetria sai do seu computador.
 
 ### Os três pilares
 
@@ -56,6 +57,8 @@ A maioria das ferramentas do mercado cobre só o item 1. O CostTracer é desenha
 - **Fase 1 — Confiabilidade e abrangência** *(concluída)*: suporte multi-região, mais tipos de recurso, e um sistema de exceções para reduzir falsos positivos (✅ "marcar como intencional" local desde o Escopo 2, nunca escreve na AWS; reconhecimento de tags já existentes na AWS foi avaliado e conscientemente adiado para preservar o pitch "conecte e funciona, sem setup prévio na sua conta" — backlog de produto).
   - ✅ Cobertura multi-região — regiões descobertas automaticamente, scan progressivo região a região, cancelável — `v0.4.0-scope4`
   - ✅ Detectores de CloudWatch Logs (sem retenção) + RDS snapshot órfão — `v0.5.0-scope5`
+- **Solidificação pós-Fase-1** *(não é uma fase numerada)*: fechando dívida técnica que a tabela de preços fixa tinha atingido o limite.
+  - ✅ AWS Price List API + cache local, substituindo a tabela fixa; toda região habilitada precificada, não só nove — `v0.6.0-scope6`
 - **Fase 2 — Ação assistida**: simulação dry-run opcional e, eventualmente, execução controlada — começando apenas pelos tipos de recurso em que a camada de confiança mais confia.
 - **Fase 3 — Multi-conta**: relevante para organizações que usam AWS Organizations; não é prioridade no curto prazo.
 
@@ -67,6 +70,7 @@ O CostTracer segue uma abordagem zero-trust por design:
 - Valida a identidade conectada via `sts:GetCallerIdentity`.
 - Verifica credenciais com permissões excessivas e alerta o usuário, oferecendo uma policy IAM mínima pronta pra copiar e aplicar.
 - Armazena qualquer credencial no cofre nativo e seguro do sistema operacional (Keychain / Credential Manager / Secret Service) — nunca em texto plano.
+- Toda chamada de rede vai para um domínio AWS, com uma exceção divulgada: a taxa de câmbio USD→BRL, que a AWS não oferece, vem do [Frankfurter](https://www.frankfurter.dev/) (`api.frankfurter.dev`), um serviço open-source e sem chave que serve a taxa de referência do Banco Central Europeu. Nenhuma credencial, dado de conta ou informação identificável é enviada — só o par de moedas.
 
 ## Licença
 

@@ -289,18 +289,26 @@ export class ResourceRowComponent {
   protected readonly costChip = computed(() => {
     const ec = this.item().estimatedCost;
     if (!ec) return null;
-    const region = this.item().region;
-    if (ec.unavailable) {
+    if (ec.unavailable === 'price-pending') {
       return {
-        text: this.i18n.t('cost.unavailableShort', { region }),
-        title: this.i18n.t('cost.unavailable', { region }),
+        text: this.i18n.t('cost.pendingShort'),
+        title: this.i18n.t('cost.pending'),
+      };
+    }
+    if (ec.unavailable) {
+      // 'price-unavailable' (lookup failed) or 'missing-fact'.
+      return {
+        text: this.i18n.t('cost.unavailableShort'),
+        title: this.i18n.t('cost.unavailable'),
       };
     }
     if (ec.monthlyUsd === null) return null;
-    const amount = formatMoney(ec.monthlyUsd, this.i18n.locale(), this.store.result()?.fxUsdBrl ?? 0);
+    const amount = formatMoney(ec.monthlyUsd, this.i18n.locale(), this.store.result()?.fx.rate ?? 0);
     return {
       text: this.i18n.t('cost.perMonth', { amount }),
-      title: this.i18n.t('cost.perResource', { amount }),
+      title: ec.pricedAt
+        ? this.i18n.t('cost.stale', { amount, date: this.fmtDate(ec.pricedAt) })
+        : this.i18n.t('cost.perResource', { amount }),
     };
   });
 

@@ -25,6 +25,14 @@
       "Resource": "*"
     },
     {
+      "Sid": "CostTracerPriceList",
+      "Effect": "Allow",
+      "Action": [
+        "pricing:GetProducts"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "CostTracerPermissionSelfAudit",
       "Effect": "Allow",
       "Action": [

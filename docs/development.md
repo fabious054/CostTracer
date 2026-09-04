@@ -33,17 +33,22 @@ src/                          Angular webview — no credential or AWS SDK code 
     ipc/tauri-ipc.service.ts    the only caller of Tauri `invoke`
     models/                     DTOs mirrored from src-tauri/src/model.rs
       aws.ts, aws-regions.ts      connection-side types + the SSO Identity Center region list
-      scan.ts                     scan result / resource / confidence types + the scan:// event payloads
+      scan.ts                     scan result / resource / confidence / FxStatus types + scan:// payloads
       ipc-contracts.ts            the typed command map (args + result per command)
     connection/
       connection.state.ts         the finite state machine: ConnectionState + ConnectionEvent + reduce()
       connection.store.ts         signal store; drives side effects, feeds outcomes back through reduce()
       *.spec.ts                   reducer negative-path tests + store flow tests
     events/
-      tauri-events.service.ts     thin wrapper over @tauri-apps/api `listen` (scan:// progress events)
+      tauri-events.service.ts     thin wrapper over @tauri-apps/api `listen` (scan:// + pricing:// events)
     scan/
       scan.store.ts               signal store: progressive event-driven run, per-account isolation,
-                                  region-by-region merge, cancel, load-latest, mark-intentional
+                                  region-by-region merge, cancel, load-latest, mark-intentional,
+                                  refreshCosts() — re-pulls scan_latest on the refresher's idle edge
+    pricing/
+      pricing.store.ts            signal store: reflects PriceRefresher activity (pricing:// events),
+                                  start() seeds it from pricing_refresh_start's return (boot-race fix),
+                                  DEV-ONLY togglePinned() to pin the strip for layout work
     sso/
       saved-urls.ts               locally-remembered Start URLs (localStorage) — see Notes
     format/
@@ -52,22 +57,30 @@ src/                          Angular webview — no credential or AWS SDK code 
     i18n/                         hand-rolled runtime i18n (messages.ts = en + pt, i18n.service.ts)
   app/shared/
     tooltip.directive.ts          [ctTooltip] — themed hover/focus hint box (replaces native title)
+    floating-notice.component.ts  ct-floating-notice — fixed, bottom-centre, calm accent tint;
+                                  the standard shell for passive background-status advisories
+    gear-menu.component.ts        ct-gear-menu — gear icon + popover action list from an items
+                                  input; permanent header UI, not a dev affordance itself
   app/features/
     onboarding/                   one component per step (see docs/scope-1-connection-flow.md)
     main/                         the post-connection screen: account bar + scan
       main-view.component.ts        account bar: id, region count + live per-region status tooltip,
-                                   the "partial scan" status seal on the header's bottom border
+                                   the "partial scan" status seal, the header gear menu, the
+                                   ct-floating-notice for background price/FX refresh (Scope 6)
       scan-panel.component.ts       first-run CTA, one fixed status line (progress + cancel),
                                    pre-scan multi-region warning, region panel, stale-credential
-                                   banner, the 5 detector sections
+                                   banner, the 5 detector sections, the account cost card + the
+                                   approx-FX flag (tooltip states the rate's source + fetch time)
       detector-section.component.ts per-detector inventory, count, collapse; region errors folded
                                    by message (errKey) into one block per distinct error
-      resource-row.component.ts     one resource; alerts highlighted + mandatory explanation
+      resource-row.component.ts     one resource; alerts highlighted + mandatory explanation;
+                                   cost chip states pending / cached-as-of-{date} / unavailable
     shell/
       titlebar.component.ts        custom window chrome + language toggle + app version label
 src-tauri/src/
-  lib.rs                       Tauri entry point (builder, state, command registration)
-  commands.rs                  one #[tauri::command] per side effect (21 commands)
+  lib.rs                       Tauri entry point (builder, state, command registration); opens both
+                               SQLite files and starts the PriceRefresher in .setup()
+  commands.rs                  one #[tauri::command] per side effect (22 commands, incl. pricing_refresh_start)
   session.rs                   in-memory OnboardingSession — holds secrets between commands
   vault.rs                     keyring (OS-native secret store) wrapper, with blob chunking
   error.rs, util.rs            shared error type + helpers
@@ -76,94 +89,157 @@ src-tauri/src/
                                rds_snapshot (+ mod = run_region, which takes &SdkConfig and builds
                                its own per-service clients — ADR 0005 D4)
   scan.rs                      scan orchestrator: discover regions → run detectors region-by-region,
-                               emitting + persisting each as it finishes, cancellable mid-run
+                               emitting + persisting each as it finishes, cancellable mid-run; loads
+                               one PriceBook snapshot per scan, never touches the network for prices
   store/                       bundled SQLite (rusqlite): migrations + begin_scan / record_region /
                                finish_scan (per-region txn) + build_scan_result + intentional flags
-  pricing/                     fixed price table (price-table.toml — ebs / elastic_ip / snapshot /
-                               cw_logs / rds_snapshot, embedded) + pure estimate() (ADR 0003 + 0005)
+  pricing/                     AWS Price List API + local cache (ADR 0006) — see "Estimated cost" below
+    mod.rs                       ProductKey, products_for(), price_needs(), the two window constants
+    pricebook.rs                 PriceBook — the immutable snapshot a scan reads
+    estimate.rs                  estimate(rt, region, facts, &PriceBook) — pure, reads only
+    cache.rs                     pricing-cache.sqlite3 schema + classify/put/load_book
+    list_api.rs                  GetProducts filters + discriminators per product key (adaptive retry)
+    fx.rs                        Frankfurter USD→BRL fetch
+    refresh.rs                   PriceRefresher — the background task; never called from the scan
   model.rs                     serde DTOs — source of truth for the frontend types
   tests/localstack.rs          opt-in #[ignore] harness — detector→store→pricing against LocalStack (ADR 0003 D4)
+  tests/price_probe.rs         permanent #[ignore] diagnostic — Price List filter discovery (Scope 6)
 docs/
   scope-1-connection-flow.md   state & screen structure for the connection flow (read this first)
   scope-2-detectors.md         detectors, confidence scale, DB schema, commands, DTOs
   adr/0001-angular-state-management.md   hand-rolled signal store + pure reducer
   adr/0002-local-scan-persistence.md     SQLite engine, retention, streak semantics, kept the hand-rolled store
   adr/0003-resource-cost-estimation.md   price-table format, cost math in the core, USD/BRL, LocalStack
+                                        (the price table itself was replaced in Scope 6, ADR 0006)
   adr/0004-multi-region-scan.md          discovery, per-region persistence, cancellation, scan:// events
   adr/0005-scope-5-detectors.md          CloudWatch Logs retention + RDS orphan snapshot: type filter,
                                         cost basis, run_region client plumbing
+  adr/0006-price-list-api-cache.md       AWS Price List API + local cache + background refresher,
+                                        decoupled from the scan; the resolved GetProducts filter map
   iam-policy-minimal.json      embedded into the binary via include_str!; served by policy_minimal_read
+                               (+ pricing:GetProducts since Scope 6)
 docker-compose.localstack.yml  opt-in LocalStack container for the harness above (not the app, not CI)
 scripts/localstack-seed.sh     seeds the LocalStack fixture the harness expects
 ```
 
 ## Verification status
 
-Scopes 1–5 are closed and tagged (`v0.1.0-scope1` … `v0.5.0-scope5` on `main`) — Phase 0 is
-complete, Phase 1 is in progress (Scopes 4 and 5). The app has run live against a real AWS account
-throughout; see `cost-tracer/scope-reports/` for the per-scope validation logs.
+Scopes 1–6 are closed and tagged (`v0.1.0-scope1` … `v0.6.0-scope6` on `main`) — Phase 0 and
+Phase 1 are complete; Scope 6 is a post-Phase-1 solidification scope (no phase number). The app
+has run live against a real AWS account throughout; see `cost-tracer/scope-reports/` for the
+per-scope validation logs.
 
-- **Frontend**: `ng build` (dev + prod) clean; 56 unit tests pass (reducer, incl. the
+- **Frontend**: `ng build` (dev + prod) clean; 58 unit tests pass (reducer, incl. the
   `connection/resynced` transition + connection store, incl. progressive multi-region merge,
   per-account isolation and the window↔vault `resync()` + i18n key-parity + `errKey` region-error
-  grouping + saved-urls + event-time + cost formatting). Prod bundle ≈ 76 kB estimated transfer.
-- **Rust core**: `cargo check` clean; `cargo test` 26/26 (confidence-scale cutoffs; scan-store
-  coverage/streak, account scoping incl. `latest_is_scoped_to_the_account` and
-  `a_scan_can_only_be_read_back_as_its_own_account`, `begin_scan`/`finish_scan` lifecycle;
-  vault chunk round-trip; price-table shape + `estimate()` per resource type — EBS / EIP / EBS
-  snapshot / CloudWatch Logs (incl. an empty group priced `$0.00`, not "unavailable") / RDS
-  snapshot — plus the unpriced-region path; demo-seed fixture). One further test,
-  `tests/localstack.rs`, is `#[ignore]` — the opt-in LocalStack harness (see below). Crate
-  families: `aws-config` / `aws-sdk-{sts,iam,ec2,cloudwatchlogs,rds,sso,ssooidc}` v1,
-  `aws-credential-types` v1, `keyring` v3, `rusqlite` 0.32 (`bundled`), `toml` 0.8, `tauri` v2,
+  grouping + saved-urls + event-time + cost formatting + `pricing.store` reflecting the
+  `pricing://` events and `start()`). Prod bundle ≈ 78 kB estimated transfer.
+- **Rust core**: `cargo check --all-targets` clean; `cargo test` 28/28 (confidence-scale cutoffs;
+  scan-store coverage/streak, account scoping incl. `latest_is_scoped_to_the_account` and
+  `a_scan_can_only_be_read_back_as_its_own_account`, `begin_scan`/`finish_scan` lifecycle; vault
+  chunk round-trip; `pricing::estimate` per resource type — EBS / EIP / EBS snapshot / CloudWatch
+  Logs (incl. an empty group priced `$0.00`, not "unavailable") / RDS snapshot, `PricePending` vs
+  `PriceUnavailable`, an expired-cache value carrying `priced_at`; `pricing::cache` classification
+  (fresh/stale/missing/failed) + `load_book` + FX states; `pricing::list_api` — OnDemand USD
+  parsing + the `eip:idle`/`ebs:snapshot`/`rds:backup` discriminators; demo-seed fixture). Two
+  further tests are permanently `#[ignore]`: `tests/localstack.rs` (opt-in LocalStack harness, see
+  below) and `tests/price_probe.rs` (Price List filter diagnostic, see "Estimated cost" below).
+  Crate families: `aws-config` / `aws-sdk-{sts,iam,ec2,cloudwatchlogs,rds,pricing,sso,ssooidc}` v1,
+  `aws-credential-types` v1, `keyring` v3, `rusqlite` 0.32 (`bundled`), `reqwest` 0.12
+  (`rustls-tls`, no default features — the one non-AWS network call, ADR 0006 D1), `tauri` v2,
   `tokio` v1, `tokio-util` 0.7 — exact resolved versions in `Cargo.toml` / `Cargo.lock`.
-- **Not covered by automated tests**: real AWS SDK calls (manual validation only); rendering of the
-  scan components — the progressive status line, cancel, region panel, stale-credential /
-  regions-unknown states, the partial-scan seal and the folded region-error block are checked
-  visually. Validated live during Scope 4 against a real multi-region account: a full progressive
-  scan, cancellation, cross-account isolation, the missing-`ec2:DescribeRegions` path. Scope 5's
-  two detectors were validated live against real accounts (`890247063933`, `770017446846`): the
-  CloudWatch Logs detector flagged 2 retention-less groups out of ~283 with the right sizes /
-  cost / qualifiers and cross-account isolation held; the RDS-snapshot detector returned 0 orphans
-  (a valid no-false-positive result). Against LocalStack (no `logs` / `rds`) the same detectors'
-  per-region errors fold into one block and end the scan `partial` — the missing-permission
-  shape. The empty-group `$0.00` and unpriced-region paths also have unit tests + a `dev_seed_scan`
-  fixture. Still unobserved (a time factor, not coverage): the Observed→Confirmed progression over
-  real days.
+- **Not covered by automated tests**: real AWS SDK calls (manual validation only, incl.
+  `pricing:GetProducts` and the Frankfurter fetch); rendering of the scan components — the
+  progressive status line, cancel, region panel, stale-credential / regions-unknown states, the
+  partial-scan seal, the folded region-error block, the gear menu popover, and the floating
+  background-refresh notice are checked visually. Validated live during Scope 4 against a real
+  multi-region account: a full progressive scan, cancellation, cross-account isolation, the
+  missing-`ec2:DescribeRegions` path. Scope 5's two detectors were validated live against real
+  accounts (`890247063933`, `770017446846`): the CloudWatch Logs detector flagged 2
+  retention-less groups out of ~283 with the right sizes / cost / qualifiers and cross-account
+  isolation held; the RDS-snapshot detector returned 0 orphans (a valid no-false-positive result).
+  Against LocalStack (no `logs` / `rds`) the same detectors' per-region errors fold into one block
+  and end the scan `partial` — the missing-permission shape. Scope 6's Price List migration was
+  validated live against `770017446846`: a cold-cache rebuild by the real app (not the harness)
+  resolved **187/187 GetProducts calls with 0 failures** across all 17 regions; the three
+  regressions the migration first introduced (`eip:idle`, `ebs:snapshot`, `rds:backup` — see ADR
+  0006's resolved filter map) were fixed and reconfirmed the same way. The three degradation
+  paths — an expired cache still serving its last value with the real date, a genuine
+  `LOOKUP FAILED` with no prior cache row, and two app instances writing the cache concurrently
+  (600 concurrent writes, 0 `SQLITE_BUSY`, `PRAGMA integrity_check` clean) — were each exercised
+  live against the real cache file and processes, not simulated in memory. Still unobserved (a
+  time factor, not coverage): the Observed→Confirmed progression over real days.
 
-## Estimated cost — the price table (Scope 3, ADR 0003; extended in Scope 5, ADR 0005)
+## Estimated cost — the AWS Price List API + local cache (Scope 6, ADR 0006)
 
-Prices come from **one fixed file**, `src-tauri/src/pricing/price-table.toml`, embedded in the
-binary with `include_str!`. No AWS Price List API call — real-time pricing is backlog (and now the
-**next scope**: five hand-maintained tables — `ebs`, `elastic_ip`, `snapshot`, `cw_logs`,
-`rds_snapshot` — is where the deferral hits its scale limit). The engine (`pricing::estimate`) is
-a pure function of `(resource_type, region, facts)`; the cost figures and the "no price for this
-region" counts are computed in the core while the scan result is built (same place as the
-confidence level), and shipped in the DTO. The webview only formats them and, when the UI language
-is Portuguese, appends the approximate BRL conversion using the fixed `fx_usd_brl` rate.
+Since Scope 6 there is no price table. Every price comes from the **AWS Price List Query API**
+(`pricing:GetProducts`), covering every region the scan discovers — not a fixed nine — cached
+locally in its own file, `pricing-cache.sqlite3` (separate from the scan DB: prices are public,
+account-independent data, so no query ever mixes account-scoped and account-independent rows).
 
-**Updating a price:**
+**The scan never touches the network for prices.** `pricing::estimate(resource_type, region,
+facts, &PriceBook)` is a pure function reading an in-memory snapshot (`PriceBook`) the scan loads
+once, at its start, from whatever is already in the cache — fresh, stale (with its real fetch
+date), a recorded failure, or simply absent. A **background task** (`pricing::PriceRefresher`,
+started once in `lib.rs`'s `.setup()`) is the only thing that ever calls `GetProducts` or fetches
+the exchange rate: it runs on app open and re-checks every ~30 minutes (plus a nudge after every
+scan), fetching whatever is missing or past its window and writing straight into the cache. A
+`ct-floating-notice` ("Updating prices in the background…") shows only while a fetch cycle is
+active. When it goes idle, `ScanStore` re-pulls `scan_latest` once so any rows that were "price
+pending" pick up the freshly-cached value without a manual re-scan.
 
-1. Open the source pages listed at the top of `price-table.toml` (EBS/snapshot: EBS pricing;
-   Elastic IP: VPC pricing; CloudWatch Logs storage: CloudWatch pricing; RDS backup storage: RDS
-   pricing — read the `[rds_snapshot]` comment about the manual-snapshot vs export-to-S3 rate).
-2. Edit the file. Keep every region block complete — all seven EBS types keyed.
-3. Bump `captured` in `[meta]`.
-4. `cd src-tauri && cargo test pricing::` must stay green (all 9 regions present for each resource
-   kind, no price zero or negative).
+Two windows, hard-coded constants (`pricing/mod.rs`), not user-configurable:
 
-A region **not** in the file is reported as "price unavailable" and counted separately — never
-approximated. `[fx] usd_brl` is a **placeholder**, not a real quote; replace it before any release.
+- **Prices: 3 days** (`PRICE_WINDOW_SECS`).
+- **USD→BRL exchange rate: 5 hours** (`FX_WINDOW_SECS`) — its own row (`fx_cache`), same file. The
+  rate comes from [Frankfurter](https://www.frankfurter.dev/) (`api.frankfurter.dev`), the
+  European Central Bank's reference rate — the one non-AWS network call in the product (ADR 0006
+  D1), disclosed in both READMEs' Security Model section. UI behaviour is unchanged from Scope 3:
+  USD is always shown; the approximate BRL conversion only appears when the UI is in Portuguese,
+  and its tooltip now states the rate's source and when it was last fetched (or, if the cache is
+  stale, "obtained {date} — a background refresh is pending").
 
-Deliberately imprecise, each with a visible caveat: `io1`/`io2` GiB-only (provisioned IOPS not
-captured); EBS snapshots on source volume size (upper bound; real billing is incremental);
-CloudWatch Logs storage-only (ingestion excluded) and off `storedBytes` (AWS-reported, lags hours);
-RDS snapshots on the source instance's allocated storage (upper bound).
+A failed fetch is recorded as a **failure marker** (`price_json`/`rate` = `NULL`), distinct from a
+row that simply hasn't been reached yet (no row at all). Failure markers are retried after a much
+shorter `FAILED_RETRY_SECS` (30 minutes) than the price window — a transient throttle on a
+cold-cache burst must not hide a price for days; the Price List Query API throttles hard on a cold
+rebuild (~190 calls), so the pricing client also uses **adaptive retry** (a client-side rate
+limiter, not just more attempts) with `MAX_IN_FLIGHT = 2` concurrent calls.
 
-**Known gap (ADR 0005, same treatment as Scope 3):** only the `us-east-1` base rates for
-`cw_logs` ($0.03/GB-mo) and `rds_snapshot` ($0.095/GB-mo) are verified against official AWS
-content. The other 8 regions are scaled by the `[snapshot]` regional factors as a first cut,
-marked `VERIFY` in the TOML — a per-region capture is outstanding, non-blocking.
+`CostUnavailable` distinguishes the two states a resource can be priceless in:
+`price-pending` (the refresher hasn't reached it yet — transient, excluded from the "no price"
+rollup count) vs `price-unavailable` (the API was tried and genuinely returned nothing —
+"LOOKUP FAILED", counted separately, never approximated). There is no "region not covered" state
+any more — every enabled region is covered.
+
+**`GetProducts` filter map** — the filter + discriminator pair per product key
+(`pricing/list_api.rs::{filters_for, discriminator_for}`), verified live against `us-east-1`,
+`sa-east-1`, `ap-south-1`, `eu-central-1`, `eu-west-1` and `ap-northeast-3`:
+
+| Product key | Service | Filter | Discriminator (on `usagetype`) |
+|---|---|---|---|
+| `ebs:{type}` | `AmazonEC2` | `productFamily=Storage`, `volumeApiName={type}`, `regionCode` | zero-tier OnDemand |
+| `ebs:snapshot` | `AmazonEC2` | `productFamily=Storage Snapshot`, `regionCode` | `EBS:SnapshotUsage` exactly, or a `-EBS:SnapshotUsage` suffix — not the archive tiers / `.outposts` / `UnderBilling` |
+| `eip:idle` | **`AmazonVPC`** | `group=VPCPublicIPv4Address`, `regionCode` | contains `PublicIPv4:IdleAddress` |
+| `cwlogs:storage` | `AmazonCloudWatch` | `regionCode` | contains `TimedStorage-ByteHrs` |
+| `rds:backup` | `AmazonRDS` | `productFamily=Storage Snapshot`, `regionCode` | ends `RDS:ChargedBackupUsage` / `RDS:BackupUsage` — not `RDSCustom:` / `Aurora:` |
+
+Two traps to remember if this ever needs revisiting: Public IPv4 moved to the `AmazonVPC` service
+with the Feb-2024 pricing change (`productFamily="IP Address"` on `AmazonEC2` matches nothing);
+and `AmazonRDS` without a `productFamily` filter returns thousands of rows, so the backup-storage
+line can fall past `max_results(100)` in busy regions — `productFamily="Storage Snapshot"` (RDS
+reuses the family) cuts that to ~40.
+
+**When a new detector needs a Price List rate:** run `tests/price_probe.rs` (permanent `#[ignore]`
+diagnostic, CLAUDE.md checklist exception alongside `dev_seed_scan` — see "price_probe" below) to
+work out the right filter/discriminator against the real API before writing it into
+`filters_for`/`discriminator_for`.
+
+Deliberately imprecise, each with a visible caveat, unchanged since Scope 3/5: `io1`/`io2`
+GiB-only (provisioned IOPS not captured); EBS snapshots on source volume size (upper bound; real
+billing is incremental); CloudWatch Logs storage-only (ingestion excluded) and off `storedBytes`
+(AWS-reported, lags hours); RDS snapshots on the source instance's allocated storage (upper
+bound).
 
 ## LocalStack harness (opt-in)
 
@@ -235,8 +311,44 @@ Per the CLAUDE.md scope-closure checklist (item 2), this one is **kept permanent
 useful for validating any future scope visually. Only genuinely temporary, single-use dev
 affordances (e.g. a `dev_force_reauth`) get removed at closure. Touch points:
 `src-tauri/src/store/demo_seed.rs`, plus the marked lines in `store/mod.rs`, `commands.rs`,
-`lib.rs`, `core/models/ipc-contracts.ts`, `core/scan/scan.store.ts`,
-`features/main/scan-panel.component.ts`, and the `demo_seed_produces_a_populated_cost_result` test.
+`lib.rs`, `core/models/ipc-contracts.ts`, `core/scan/scan.store.ts`, and the
+`demo_seed_produces_a_populated_cost_result` test. Since Scope 6 the button lives in the header's
+gear menu (`features/main/main-view.component.ts`, `shared/gear-menu.component.ts`), not the scan
+panel — see "The header gear menu" below.
+
+### `price_probe` — Price List API filter diagnostic (permanent dev tool, Scope 6)
+
+`src-tauri/tests/price_probe.rs` is a second **permanent** exception under the same checklist
+item. The AWS Price List Query API's filter attributes (`productFamily`, `group`, `usagetype`,
+`regionCode` vs `location`, …) are undocumented-in-practice and vary by service — ADR 0006 D3's
+caveat, which played out exactly as expected for `eip:idle` (moved to the `AmazonVPC` service),
+`ebs:snapshot` (6 line items, order not guaranteed) and `rds:backup` (thousands of AmazonRDS rows,
+the backup line fell past `max_results(100)` in busy regions). This harness is what found and
+fixed all three: it reads the connected credential straight from the OS vault, calls
+`GetProducts` with candidate filters, and dumps the raw product attributes so a filter/
+discriminator pair can be worked out against the real API instead of guessed.
+
+**Always `#[ignore]`, never in `cargo test` or CI** — it hits the real AWS Price List API with a
+real credential, on demand only:
+
+```
+cd src-tauri
+cargo test --test price_probe -- --ignored --nocapture
+PROBE_REGION=sa-east-1 cargo test --test price_probe -- --ignored --nocapture
+```
+
+Run this the next time a new detector needs a Price List rate: point it at the new
+`(service, product key)` pair, iterate the `dump()` calls until the right filter/discriminator
+falls out, then port that into `pricing/list_api.rs::{filters_for, discriminator_for}`. Not part
+of the removal checklist.
+
+### The header gear menu
+
+The gear icon next to "Disconnect" (`shared/gear-menu.component.ts`) is **permanent product UI**,
+not a dev affordance — it's where real user settings will live. Only its *current contents* are
+dev-only: "seed demo" and "pin price strip" are pushed into the `items` array from
+`main-view.component.ts` only under `isDevMode()`; a release build renders the gear with an empty
+state ("No settings yet" — `settings.empty`). Add real settings by pushing more entries there.
 
 ## Notes / v1 simplifications
 

@@ -7,6 +7,8 @@ mod migrations;
 // (CLAUDE.md checklist, item 2 exception).
 #[cfg(debug_assertions)]
 mod demo_seed;
+#[cfg(debug_assertions)]
+pub use demo_seed::demo_price_book;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -18,10 +20,11 @@ use serde_json::Value;
 use crate::detectors::RawFinding;
 use crate::error::{AppError, AppResult};
 use crate::model::{
-    AccountCostRollup, ConfidenceInfo, ConfidenceLevel, DetectorCostRollup, DetectorKind,
-    DetectorResult, RegionError, ResourceItem, ResourceRef, ResourceState, ResourceType,
-    ScanResult, ScanStatus,
+    AccountCostRollup, ConfidenceInfo, ConfidenceLevel, CostUnavailable, DetectorCostRollup,
+    DetectorKind, DetectorResult, RegionError, ResourceItem, ResourceRef, ResourceState,
+    ResourceType, ScanResult, ScanStatus,
 };
+use crate::pricing::PriceBook;
 use crate::util::now_unix_secs;
 
 const DETECTORS: [DetectorKind; 5] = [
@@ -202,23 +205,33 @@ impl Db {
         Ok(scan_id)
     }
 
-    pub fn build_scan_result(&self, scan_id: i64, account_id: &str) -> AppResult<ScanResult> {
+    pub fn build_scan_result(
+        &self,
+        scan_id: i64,
+        account_id: &str,
+        book: &PriceBook,
+    ) -> AppResult<ScanResult> {
         let conn = self.lock();
-        scan_result_from_conn(&conn, scan_id, account_id)
+        scan_result_from_conn(&conn, scan_id, account_id, book)
     }
 
     /// DEV-ONLY (`#[cfg(debug_assertions)]`). Replace this account's history with a realistic
     /// fixture so the cost UI can be reviewed with representative data. Kept permanently
-    /// (CLAUDE.md checklist, item 2 exception).
+    /// (CLAUDE.md checklist, item 2 exception). The caller passes a synthetic `PriceBook`
+    /// (`demo_seed::synthetic_book`) so the demo shows numbers without any network.
     #[cfg(debug_assertions)]
-    pub fn seed_demo(&self, account_id: &str) -> AppResult<ScanResult> {
+    pub fn seed_demo(&self, account_id: &str, book: &PriceBook) -> AppResult<ScanResult> {
         let conn = self.lock();
         let scan_id = demo_seed::seed(&conn, account_id)?;
-        scan_result_from_conn(&conn, scan_id, account_id)
+        scan_result_from_conn(&conn, scan_id, account_id, book)
     }
 
     /// Most recent scan **for this account** — never another account's stale result.
-    pub fn latest_scan_result(&self, account_id: &str) -> AppResult<Option<ScanResult>> {
+    pub fn latest_scan_result(
+        &self,
+        account_id: &str,
+        book: &PriceBook,
+    ) -> AppResult<Option<ScanResult>> {
         let conn = self.lock();
         // Skip a `running` row — a scan still in flight, or one whose process was killed (ADR
         // 0004 D3). Its observations still count toward streaks; it just isn't shown as "latest".
@@ -232,7 +245,7 @@ impl Db {
             )
             .optional()?;
         match head {
-            Some(id) => Ok(Some(scan_result_from_conn(&conn, id, account_id)?)),
+            Some(id) => Ok(Some(scan_result_from_conn(&conn, id, account_id, book)?)),
             None => Ok(None),
         }
     }
@@ -284,7 +297,7 @@ struct RawItemRow {
 }
 
 impl RawItemRow {
-    fn into_item(self) -> AppResult<ResourceItem> {
+    fn into_item(self, book: &PriceBook) -> AppResult<ResourceItem> {
         let resource_type = ResourceType::from_db(&self.resource_type)
             .ok_or_else(|| AppError::msg(format!("unknown resource_type '{}'", self.resource_type)))?;
         let facts: Value = serde_json::from_str(&self.facts_json)?;
@@ -312,7 +325,7 @@ impl RawItemRow {
         // Cost is shown on the same rows as the mandatory explanation — alerting, non-intentional.
         let estimated_cost = confidence
             .as_ref()
-            .map(|_| crate::pricing::estimate(resource_type, &self.region, &facts));
+            .map(|_| crate::pricing::estimate(resource_type, &self.region, &facts, book));
 
         Ok(ResourceItem {
             resource_type,
@@ -335,6 +348,7 @@ fn scan_result_from_conn(
     conn: &Connection,
     scan_id: i64,
     account_id: &str,
+    book: &PriceBook,
 ) -> AppResult<ScanResult> {
     // `account_id` in the WHERE, not just `id`: a scan can only ever be read back as its own
     // account's — a mismatched (scan_id, account_id) pair is a no-row error, never another
@@ -382,7 +396,7 @@ fn scan_result_from_conn(
 
     let mut by_type: HashMap<ResourceType, Vec<ResourceItem>> = HashMap::new();
     for row in rows {
-        let item = row?.into_item()?;
+        let item = row?.into_item(book)?;
         by_type.entry(item.resource_type).or_default().push(item);
     }
     for items in by_type.values_mut() {
@@ -427,7 +441,7 @@ fn scan_result_from_conn(
     let cost_rollup = account_rollup(&detectors);
     if cost_rollup.unpriced_count > 0 {
         eprintln!(
-            "[pricing] {} flagged resource(s) had no price for their region (scan {scan_id})",
+            "[pricing] {} flagged resource(s) had no usable price (scan {scan_id})",
             cost_rollup.unpriced_count
         );
     }
@@ -441,11 +455,13 @@ fn scan_result_from_conn(
         status,
         detectors,
         cost_rollup,
-        fx_usd_brl: crate::pricing::fx_usd_brl(),
+        fx: book.fx(),
     })
 }
 
 /// Per-detector total over its alerting, non-intentional resources (those carry `estimated_cost`).
+/// A `PricePending` row (the refresher hasn't fetched it yet) is transient — it doesn't count as
+/// "unpriced" (which drives the "N with no price" badge); only a real failure / missing fact does.
 fn detector_rollup(items: &[ResourceItem]) -> DetectorCostRollup {
     let mut r = DetectorCostRollup::default();
     for it in items {
@@ -455,6 +471,7 @@ fn detector_rollup(items: &[ResourceItem]) -> DetectorCostRollup {
                 r.monthly_usd += usd;
                 r.priced_count += 1;
             }
+            None if ec.unavailable == Some(CostUnavailable::PricePending) => {}
             None => r.unpriced_count += 1,
         }
     }
@@ -479,6 +496,7 @@ fn account_rollup(detectors: &[DetectorResult]) -> AccountCostRollup {
                         a.context_monthly_usd += usd
                     }
                 },
+                None if ec.unavailable == Some(CostUnavailable::PricePending) => {}
                 None => a.unpriced_count += 1,
             }
         }
@@ -503,6 +521,12 @@ mod tests {
     use serde_json::json;
 
     const DAY: i64 = 86_400;
+
+    /// These tests care about streak / confidence / scoping, not cost figures — an empty book
+    /// makes every estimate "price pending", which is fine here.
+    fn empty_book() -> PriceBook {
+        PriceBook::new()
+    }
 
     fn finding(id: &str, in_alert: bool) -> RawFinding {
         RawFinding {
@@ -533,7 +557,7 @@ mod tests {
     }
 
     fn ebs_items(db: &Db, scan_id: i64) -> Vec<ResourceItem> {
-        let mut r = db.build_scan_result(scan_id, "acc").unwrap();
+        let mut r = db.build_scan_result(scan_id, "acc", &empty_book()).unwrap();
         std::mem::take(&mut r.detectors[0].items)
     }
 
@@ -603,7 +627,7 @@ mod tests {
     #[test]
     fn demo_seed_produces_a_populated_cost_result() {
         let db = Db::in_memory().unwrap();
-        let r = db.seed_demo("demoacct").unwrap();
+        let r = db.seed_demo("demoacct", &demo_seed::demo_price_book()).unwrap();
 
         assert!(r.cost_rollup.primary_monthly_usd > 0.0, "Probable+Confirmed should total > 0");
         assert!(r.cost_rollup.context_monthly_usd > 0.0, "Observed+Persisting should total > 0");
@@ -622,7 +646,7 @@ mod tests {
 
         // re-seeding replaces, never duplicates.
         let n1: usize = r.detectors.iter().map(|d| d.items.len()).sum();
-        let r2 = db.seed_demo("demoacct").unwrap();
+        let r2 = db.seed_demo("demoacct", &demo_seed::demo_price_book()).unwrap();
         let n2: usize = r2.detectors.iter().map(|d| d.items.len()).sum();
         assert_eq!(n1, n2);
     }
@@ -632,7 +656,7 @@ mod tests {
         let db = Db::in_memory().unwrap();
         scan_at(&db, 0, "vol-1", true);
         scan_at(&db, DAY, "vol-1", true);
-        let latest = db.latest_scan_result("acc").unwrap().unwrap();
+        let latest = db.latest_scan_result("acc", &empty_book()).unwrap().unwrap();
         assert_eq!(latest.detectors.len(), 5);
         assert_eq!(latest.detectors[0].items.len(), 1);
     }
@@ -651,13 +675,13 @@ mod tests {
             .unwrap();
 
         // latest skips the `running` row — returns the older completed one
-        let latest = db.latest_scan_result("acc").unwrap().unwrap();
+        let latest = db.latest_scan_result("acc", &empty_book()).unwrap().unwrap();
         assert_eq!(latest.status, ScanStatus::Ok);
         assert_eq!(latest.detectors[0].items[0].resource_id, "vol-1");
 
         // once finished, it becomes the latest
         db.finish_scan(sid, ScanStatus::Cancelled, 5 * DAY).unwrap();
-        let latest = db.latest_scan_result("acc").unwrap().unwrap();
+        let latest = db.latest_scan_result("acc", &empty_book()).unwrap().unwrap();
         assert_eq!(latest.status, ScanStatus::Cancelled);
         assert_eq!(latest.detectors[0].items[0].resource_id, "vol-2");
         // the region that never ran left no observation — its streak (none) is untouched
@@ -695,11 +719,11 @@ mod tests {
         )
         .unwrap();
 
-        let a = db.latest_scan_result("acct-a").unwrap().unwrap();
+        let a = db.latest_scan_result("acct-a", &empty_book()).unwrap().unwrap();
         assert_eq!(a.account_id, "acct-a");
         assert_eq!(a.detectors[0].items[0].resource_id, "vol-a");
 
-        assert!(db.latest_scan_result("acct-c").unwrap().is_none());
+        assert!(db.latest_scan_result("acct-c", &empty_book()).unwrap().is_none());
     }
 
     #[test]
@@ -717,7 +741,7 @@ mod tests {
             )
             .unwrap();
         // Another account asking for acct-a's scan id gets an error, never acct-a's data.
-        assert!(db.build_scan_result(scan_id, "acct-b").is_err());
-        assert!(db.build_scan_result(scan_id, "acct-a").is_ok());
+        assert!(db.build_scan_result(scan_id, "acct-b", &empty_book()).is_err());
+        assert!(db.build_scan_result(scan_id, "acct-a", &empty_book()).is_ok());
     }
 }

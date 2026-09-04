@@ -1,7 +1,11 @@
 //! Progressive multi-region scan orchestrator (Scope 4, ADR 0004). Loads the stored credential,
-//! discovers the account's enabled regions via `ec2:DescribeRegions`, then runs the 3 detectors
+//! discovers the account's enabled regions via `ec2:DescribeRegions`, then runs the detectors
 //! region-by-region — persisting and emitting each region as it finishes, and stopping cleanly on
 //! cancellation. Read-only against AWS.
+//!
+//! Prices: the scan **never** fetches. It loads one read snapshot (`PriceBook`) from the local
+//! `pricing-cache.sqlite3` and reads from that; a background refresher keeps the cache warm
+//! (ADR 0006 D2).
 
 use tauri::{AppHandle, Emitter};
 use tokio_util::sync::CancellationToken;
@@ -12,6 +16,7 @@ use crate::error::{AppError, AppResult};
 use crate::model::{
     ScanDoneEvent, ScanRegionEvent, ScanRunOutcome, ScanStartedEvent, ScanStatus, ValidationOutcome,
 };
+use crate::pricing::{price_needs, PriceCache, PriceRefresher};
 use crate::store::Db;
 use crate::util::now_unix_secs;
 use crate::vault;
@@ -19,6 +24,8 @@ use crate::vault;
 pub async fn run_scan(
     app: &AppHandle,
     db: &Db,
+    price_cache: &PriceCache,
+    refresher: &PriceRefresher,
     cancel: CancellationToken,
 ) -> AppResult<ScanRunOutcome> {
     let stored = match vault::load()? {
@@ -63,6 +70,10 @@ pub async fn run_scan(
         },
     );
 
+    // One plain read of the local price cache for this scan's whole grid — no network, ADR 0006.
+    // Absent entries surface as "price pending" until the background refresher fills them.
+    let price_book = price_cache.load_book(&price_needs(&regions), started_at)?;
+
     let mut any_error = false;
     let mut cancelled = false;
 
@@ -94,7 +105,7 @@ pub async fn run_scan(
             ScanStatus::Partial
         };
 
-        let result = db.build_scan_result(scan_id, &stored.account_id)?;
+        let result = db.build_scan_result(scan_id, &stored.account_id, &price_book)?;
         let _ = app.emit(
             "scan://region",
             ScanRegionEvent {
@@ -122,7 +133,11 @@ pub async fn run_scan(
         },
     );
 
-    let result = db.build_scan_result(scan_id, &stored.account_id)?;
+    // Nudge the background refresher — cheap if the cache is already warm, and closes the gap for
+    // a region the account opted into since the last cycle (ADR 0006 D2b).
+    refresher.nudge();
+
+    let result = db.build_scan_result(scan_id, &stored.account_id, &price_book)?;
     Ok(match final_status {
         ScanStatus::Cancelled => ScanRunOutcome::Cancelled { result },
         _ => ScanRunOutcome::Ok { result },

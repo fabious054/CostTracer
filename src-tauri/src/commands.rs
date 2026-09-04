@@ -2,7 +2,7 @@
 //! The webview never receives a secret — raw keys and SSO tokens stay in `OnboardingSession`
 //! until `connection_finalize` moves them into the OS vault.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use aws_credential_types::provider::ProvideCredentials;
 use tauri::State;
@@ -17,8 +17,10 @@ use crate::model::{
     SsoPollOutcome, SsoSelectTargetInput, SsoStartInput, StoredCredential, UseDetectedInput,
     ValidationOutcome,
 };
+use crate::pricing::{price_needs, PriceBook, PriceCache, PriceRefresher};
 use crate::session::{OnboardingSession, PendingCredential, SsoFlow};
 use crate::store::Db;
+use crate::util::now_unix_secs;
 use crate::vault;
 
 /// Single source of truth for the recommended policy — the exact repo file, embedded at build time.
@@ -386,10 +388,12 @@ impl ScanCancel {
 pub async fn scan_run(
     app: tauri::AppHandle,
     db: State<'_, Db>,
+    prices: State<'_, Arc<PriceCache>>,
+    refresher: State<'_, PriceRefresher>,
     cancel: State<'_, ScanCancel>,
 ) -> AppResult<ScanRunOutcome> {
     let token = cancel.fresh();
-    crate::scan::run_scan(&app, db.inner(), token).await
+    crate::scan::run_scan(&app, db.inner(), prices.inner(), refresher.inner(), token).await
 }
 
 #[tauri::command]
@@ -398,12 +402,37 @@ pub fn scan_cancel(cancel: State<'_, ScanCancel>) -> AppResult<()> {
     Ok(())
 }
 
+/// A price snapshot from the local cache for `regions` — no network (ADR 0006). Absent entries
+/// read back as "price pending".
+fn price_book(cache: &PriceCache, regions: &[String]) -> AppResult<PriceBook> {
+    cache.load_book(&price_needs(regions), now_unix_secs())
+}
+
 #[tauri::command]
-pub fn scan_latest(db: State<'_, Db>) -> AppResult<Option<ScanResult>> {
+pub fn scan_latest(
+    db: State<'_, Db>,
+    prices: State<'_, Arc<PriceCache>>,
+) -> AppResult<Option<ScanResult>> {
     match vault::load()? {
-        Some(cred) => db.latest_scan_result(&cred.account_id),
+        Some(cred) => {
+            let book = price_book(prices.inner(), &cred.regions)?;
+            db.latest_scan_result(&cred.account_id, &book)
+        }
         None => Ok(None),
     }
+}
+
+/// Start the background price/FX refresher if it isn't running (idempotent, ADR 0006 D2b/D2c) and
+/// return whether a fetch cycle is running **right now** — so the webview can show the "updating
+/// prices" strip even if it missed the boot-time `pricing://refreshing` event.
+#[tauri::command]
+pub fn pricing_refresh_start(
+    app: tauri::AppHandle,
+    prices: State<'_, Arc<PriceCache>>,
+    refresher: State<'_, PriceRefresher>,
+) -> AppResult<bool> {
+    refresher.ensure_started(app, prices.inner().clone());
+    Ok(refresher.is_active())
 }
 
 #[tauri::command]
@@ -423,7 +452,8 @@ pub fn resource_unmark_intentional(input: ResourceRef, db: State<'_, Db>) -> App
 #[cfg(debug_assertions)]
 #[tauri::command]
 pub fn dev_seed_scan(db: State<'_, Db>) -> AppResult<ScanResult> {
-    db.seed_demo(&connected_account_id()?)
+    // A synthetic price book so the demo shows numbers with no network / no cache dependency.
+    db.seed_demo(&connected_account_id()?, &crate::store::demo_price_book())
 }
 
 fn connected_account_id() -> AppResult<String> {

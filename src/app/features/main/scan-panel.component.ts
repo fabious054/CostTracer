@@ -1,15 +1,10 @@
-import {
-  ChangeDetectionStrategy,
-  Component,
-  computed,
-  inject,
-  isDevMode,
-  signal,
-} from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { ConnectionStore } from '../../core/connection/connection.store';
 import { formatEventTime } from '../../core/format/event-time';
 import { formatMoney } from '../../core/format/cost';
 import { I18nService } from '../../core/i18n/i18n.service';
+import { Locale } from '../../core/i18n/messages';
+import { FxStatus } from '../../core/models/scan';
 import { ScanStore } from '../../core/scan/scan.store';
 import { TooltipDirective } from '../../shared/tooltip.directive';
 import { DetectorSectionComponent } from './detector-section.component';
@@ -84,11 +79,6 @@ import { DetectorSectionComponent } from './detector-section.component';
               >
                 {{ i18n.t('scan.rescan') }}
               </button>
-              @if (isDev) {
-                <button type="button" class="ct-btn dev-seed" (click)="store.seedDemo()" title="DEV-ONLY">
-                  seed demo
-                </button>
-              }
             }
 
             @if (regionStrip().length > 0) {
@@ -166,11 +156,6 @@ import { DetectorSectionComponent } from './detector-section.component';
             <button type="button" class="ct-btn ct-btn--primary" (click)="requestScan()">
               {{ i18n.t('scan.runFirst') }}
             </button>
-            @if (isDev) {
-              <button type="button" class="ct-btn dev-seed" (click)="store.seedDemo()" title="DEV-ONLY">
-                seed demo
-              </button>
-            }
           </div>
         }
         </div>
@@ -338,11 +323,6 @@ import { DetectorSectionComponent } from './detector-section.component';
       .rescan {
         margin-left: auto;
       }
-      .dev-seed {
-        border-style: dashed;
-        color: var(--ct-text-faint);
-        font-size: 11px;
-      }
       .retry {
         margin-top: 12px;
       }
@@ -438,8 +418,6 @@ export class ScanPanelComponent {
   protected readonly i18n = inject(I18nService);
   protected readonly store = inject(ScanStore);
   private readonly connection = inject(ConnectionStore);
-  /** DEV-ONLY — the "seed demo" button. Kept permanently (CLAUDE.md checklist exception). */
-  protected readonly isDev = isDevMode();
 
   /** Pre-scan multi-region warning: shown once per connected session (ADR 0004 D5). */
   protected readonly warnOpen = signal(false);
@@ -536,29 +514,44 @@ export class ScanPanelComponent {
     const loc = this.i18n.locale();
     return {
       primary: this.i18n.t('cost.account.primary', {
-        amount: formatMoney(cr.primaryMonthlyUsd, loc, r.fxUsdBrl),
+        amount: formatMoney(cr.primaryMonthlyUsd, loc, r.fx.rate),
       }),
       primaryLabel: this.i18n.t('cost.account.primaryLabel'),
       context:
         cr.contextMonthlyUsd > 0
           ? this.i18n.t('cost.account.context', {
-              amount: formatMoney(cr.contextMonthlyUsd, loc, r.fxUsdBrl, false),
+              amount: formatMoney(cr.contextMonthlyUsd, loc, r.fx.rate, false),
             })
           : null,
       contextLabel: this.i18n.t('cost.account.contextLabel'),
-      approx: loc === 'pt' ? this.i18n.t('cost.approxNote') : null,
+      approx: this.fxNote(r.fx, loc),
     };
   });
 
-  /** Account-wide "resources in a region the price table doesn't cover" — a tool-coverage note,
-   *  kept out of the cost card (which is about waste, not coverage). */
+  /**
+   * Tooltip for the "approx. rate" flag: where the USD→BRL rate came from and when it was last
+   * fetched (ADR 0006 D1 — ECB reference rate via api.frankfurter.dev, the one non-AWS host).
+   * Portuguese only, since the BRL conversion itself only shows in pt. Null when there's no rate
+   * to attribute (pending / unavailable — no BRL is rendered then anyway).
+   */
+  private fxNote(fx: FxStatus, loc: Locale): string | null {
+    if (loc !== 'pt' || (fx.state !== 'fresh' && fx.state !== 'stale')) return null;
+    const date = fx.asOf ? this.when(fx.asOf) : '—';
+    const key = fx.state === 'stale' ? 'cost.approxNoteStale' : 'cost.approxNote';
+    return this.i18n.t(key, { date });
+  }
+
+  /** Account-wide "flagged resources the Price List API returned no rate for" — a coverage note,
+   *  kept out of the cost card (which is about waste, not coverage). "Pending" doesn't count. */
   protected readonly unpricedGlobal = computed(() => {
     const r = this.store.result();
     if (!r || r.costRollup.unpricedCount === 0) return null;
     const regions = [
       ...new Set(
         r.detectors.flatMap((d) =>
-          d.items.filter((i) => i.estimatedCost?.unavailable === 'region').map((i) => i.region),
+          d.items
+            .filter((i) => i.estimatedCost?.unavailable === 'price-unavailable')
+            .map((i) => i.region),
         ),
       ),
     ].sort();

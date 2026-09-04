@@ -13,9 +13,12 @@ pub mod model;
 pub mod pricing;
 pub mod store;
 
+use std::sync::Arc;
+
 use tauri::Manager;
 
 use commands::ScanCancel;
+use pricing::{PriceCache, PriceRefresher};
 use session::OnboardingSession;
 use store::Db;
 
@@ -29,8 +32,16 @@ pub fn run() {
         .setup(|app| {
             let dir = app.path().app_local_data_dir()?;
             std::fs::create_dir_all(&dir)?;
-            let db = Db::open(dir.join("costtracer.sqlite3"))?;
-            app.manage(db);
+            app.manage(Db::open(dir.join("costtracer.sqlite3"))?);
+
+            // Pricing cache lives in its own file — public, account-independent data (ADR 0006 D4).
+            let prices = Arc::new(PriceCache::open(dir.join("pricing-cache.sqlite3"))?);
+            app.manage(prices.clone());
+            // Kick the background refresher now so FX (which needs no credential) warms before the
+            // first scan; it's idempotent, the webview also calls `pricing_refresh_start`.
+            let refresher = PriceRefresher::default();
+            refresher.ensure_started(app.handle().clone(), prices);
+            app.manage(refresher);
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -52,6 +63,7 @@ pub fn run() {
             commands::scan_run,
             commands::scan_cancel,
             commands::scan_latest,
+            commands::pricing_refresh_start,
             commands::resource_mark_intentional,
             commands::resource_unmark_intentional,
             // DEV-ONLY — kept permanently (CLAUDE.md checklist, item 2 exception).

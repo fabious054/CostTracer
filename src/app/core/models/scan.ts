@@ -31,7 +31,7 @@ export interface RegionError {
   message: string;
 }
 
-// --- Scope 3 — estimated cost (ADR 0003). Core produces USD; the webview does the BRL display. ---
+// --- Scope 3 — estimated cost (ADR 0003; source migrated to the Price List API in ADR 0006). ---
 
 export type CostBasis =
   | 'ebs-gib'
@@ -46,7 +46,9 @@ export type CostQualifier =
   | 'logs-storage-only'
   | 'logs-size-reported'
   | 'rds-snapshot-allocated-size';
-export type CostUnavailable = 'region' | 'missing-fact';
+/** `price-pending` = the background refresher hasn't fetched this (resource, region) yet — not an
+ *  error. `price-unavailable` = it tried the Price List API and got nothing. */
+export type CostUnavailable = 'missing-fact' | 'price-pending' | 'price-unavailable';
 
 export interface EstimatedCost {
   /** USD per month. `null` exactly when `unavailable` is set. */
@@ -54,6 +56,19 @@ export interface EstimatedCost {
   basis: CostBasis;
   qualifiers: CostQualifier[];
   unavailable: CostUnavailable | null;
+  /** Set only when the rate used came from an expired cache entry (unix seconds) — drives a
+   *  "price cached {date}" note. `null` for a fresh value. */
+  pricedAt: number | null;
+}
+
+export type FxState = 'fresh' | 'stale' | 'pending' | 'unavailable';
+
+/** USD→BRL rate + freshness (ADR 0006). `rate === 0` for pending / unavailable — USD only then. */
+export interface FxStatus {
+  rate: number;
+  /** Unix seconds of the cache entry's fetch time; set only when `state` is `stale`. */
+  asOf: number | null;
+  state: FxState;
 }
 
 /** Per-detector total — over alerting, non-intentional resources only. */
@@ -106,8 +121,8 @@ export interface ScanResult {
   status: ScanStatus;
   detectors: DetectorResult[];
   costRollup: AccountCostRollup;
-  /** Fixed USD→BRL rate from the price table (placeholder value; UI labels it approximate). */
-  fxUsdBrl: number;
+  /** USD→BRL rate + freshness (ADR 0006). Replaces the old fixed `fxUsdBrl`. */
+  fx: FxStatus;
 }
 
 export type ScanRunOutcome =
@@ -135,6 +150,12 @@ export interface ScanRegionEvent {
 export interface ScanDoneEvent {
   scanId: number;
   status: ScanStatus;
+}
+
+/** `pricing://refreshing` — the background price/FX refresher is actively fetching (ADR 0006 D2b).
+ *  Paired with `pricing://idle` (no payload) when there's nothing left to fetch. */
+export interface PricingRefreshingEvent {
+  pending: number;
 }
 
 /** Per-region UI state during a progressive scan. */
